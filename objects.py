@@ -1,7 +1,10 @@
 import random
-import system as syt
+
 
 class deck(object):
+    """
+        Object that keeps track of the total deck, the cards in play and the used cards
+    """
     full_deck = [['3', '♦', [3]], ['J', '♦', [10]], ['8', '♦', [8]], ['9', '♦', [9]], ['5', '♦', [5]], ['2', '♦', [2]], ['A', '♦', [1, 11]], ['K', '♦', [10]], ['4', '♦', [4]], ['7', '♦', [7]], ['T', '♦', [10]], ['Q', '♦', [10]], ['6', '♦', [6]], ['3', '♠', [3]], ['J', '♠', [10]], ['8', '♠', [8]], ['9', '♠', [9]], ['5', '♠', [5]], ['2', '♠', [2]], ['A', '♠', [1, 11]], ['K', '♠', [10]], ['4', '♠', [4]], ['7', '♠', [7]], ['T', '♠', [10]], ['Q', '♠', [10]], ['6', '♠', [6]], ['3', '♥', [3]], ['J', '♥', [10]], ['8', '♥', [8]], ['9', '♥', [9]], ['5', '♥', [5]], ['2', '♥', [2]], ['A', '♥', [1, 11]], ['K', '♥', [10]], ['4', '♥', [4]], ['7', '♥', [7]], ['T', '♥', [10]], ['Q', '♥', [10]], ['6', '♥', [6]], ['3', '♣', [3]], ['J', '♣', [10]], ['8', '♣', [8]], ['9', '♣', [9]], ['5', '♣', [5]], ['2', '♣', [2]], ['A', '♣', [1, 11]], ['K', '♣', [10]], ['4', '♣', [4]], ['7', '♣', [7]], ['T', '♣', [10]], ['Q', '♣', [10]], ['6', '♣', [6]]]
     def __init__(self, decks=1, deck_penetration=0):
         self.available_cards = []
@@ -14,10 +17,28 @@ class deck(object):
         self.target_deck_penetration = deck_penetration
         self.shuffle()
 
+    @property
+    def penetraion(self):
+        """
+        :return: Percent of the deck that is currently being used
+        """
+        return round(((len(self.in_play_cards)+len(self.used_cards))/(self.deck_size))*100,2)
+
+    def __repr__(self):
+        return "Decks {} | Cards {} | Status: {}/{}/{} {}%".format(self.deck_size/52,self.deck_size,len(self.available_cards),len(self.in_play_cards),len(self.used_cards),self.penetraion)
+
     def deal(self):
+        """
+            Deal a new hand of 2 cards
+        :return: list of two cards
+        """
         return [self.draw(), self.draw()]
 
     def draw(self):
+        """
+            Draw one more card into a hand
+        :return: a single card object
+        """
         if self.check_card_availability():
             current_card = self.available_cards.pop()
             self.in_play_cards.append(current_card)
@@ -26,11 +47,12 @@ class deck(object):
             print("ERROR: All cards in play")
             return None
 
-    def close_play_field(self):
-        for c in range(len(self.in_play_cards)):
-            self.used_cards.append(self.in_play_cards.pop())
-
-    def return_cards_from_hand(self, cards):
+    def return_cards(self, cards):
+        """
+            Take cards from the list and move them to the used_cards list
+        :param cards: any number of cards in a list
+        :return:
+        """
         for c in cards:
             if c in self.in_play_cards:
                 self.in_play_cards.remove(c)
@@ -38,31 +60,19 @@ class deck(object):
             else:
                 print("ERROR = {} was not in play?".format(c))
 
-
-    @property
-    def penetraion(self):
-        return ((len(self.in_play_cards)+len(self.used_cards))/(self.deck_size))*100
-
-    def check_penetration(self):
-        print("{}% through the deck (of {}%)".format(round(self.penetraion,2), self.target_deck_penetration))
-        if self.penetraion >= self.target_deck_penetration:
-            self.shuffle()
-
     def check_card_availability(self):
-        if len(self.available_cards) == 0 and len(self.used_cards) ==  0:
+        if len(self.available_cards) == 0 and len(self.used_cards) == 0:
             return False
-        elif len(self.available_cards) == 0 and len(self.used_cards) > 0:
+        elif (len(self.available_cards) == 0 or self.penetraion >= self.target_deck_penetration) and len(self.used_cards) > 0:
             self.shuffle()
             return True
-        else: return True
+        else:
+            return True
 
     def shuffle(self):
-        print("Shuffling Deck")
         for c in range(len(self.used_cards)):
             self.available_cards.append(self.used_cards.pop())
         random.shuffle(self.available_cards)
-
-
 
 class card(object):
     def __init__(self, card_list):
@@ -72,43 +82,59 @@ class card(object):
         """
         self.suit = card_list[1]
         self.name = card_list[0]
-        self.value = card_list[2]
-
+        self.values = card_list[2]
 
     def __repr__(self):
         return "{}{}".format(self.name,self.suit)
 
 class hand(object):
-    def __init__(self, cards, player):
+    """
+        Current hand of play
+    """
+    def __init__(self, cards, player, bet=0):
         self.cards = cards
         self.player = player
-        self.standed = False
-        self.current_matchups = []
+        self.bet = bet
+        self.winlose = 0 # 1 for won, 0 for lost
+        self.is_stand = False
         self.actions_taken = []
 
     @property
-    def value(self):
+    def values(self):
+        """
+
+        :return: List of all possible values for a hand
+        """
         values = []
         for c in self.cards:
             if values == []:
-                values = c.value
+                values = c.values
             else:
-                values = [sum([x,y]) for x in c.value for y in values]
+                values = [sum([x,y]) for x in c.values for y in values]
         return values
 
     @property
     def max_value(self):
-        max_val = max(self.value)
-        if max_val > 21 and len(self.value) > 1:
-            max_val = max(v for v in self.value if v <= 21)
+        """
+        :return: The highest value of a hand 21 or below. Or if no value below 21, return highest value
+        """
+        max_val = max(self.values)
+        if max_val > 21 and len(self.values) > 1:
+            max_val = max(v for v in self.values if v <= 21)
         return max_val
 
     @property
     def min_value(self):
-        return min(self.value)
+        """
+        :return: Lowest value a hand has
+        """
+        return min(self.values)
 
     @property
-    def black_jack(self):
+    def blackjack(self):
+        """
+        :return: True if hand is a blackjack
+        """
         if len(self.cards) == 2:
             if self.max_value == 21:
                 return True
@@ -116,97 +142,125 @@ class hand(object):
             return False
 
     @property
-    def soft(self):
+    def bust(self):
         """
-
-        :return: True if one of the cards is an Ace
+        :return: True if all values are above 21
         """
-        if len(self.value) > 1:
+        if self.min_value > 21:
             return True
-        else:
-            return False
+        else: return False
 
     @property
-    def has_ace(self):
+    def soft(self):
+        """
+        :return: True if one of the cards is an Ace (and therefore has multiple possible values
+        """
+        if len(self.values) > 1: return True
+        else: return False
+
+    @property
+    def showing_ace(self):
         """
         For insurance
-        :return: True if first card is an ACE
+        :return: True if first card is an ACE - For insurance purposes
         """
         if self.cards[0].name == "A": return True
         else: return False
 
     @property
-    def has_double_ace(self):
-        if self.cards[0].name == "A" and self.cards[0].name == "A": return True
-        else: return False
-
-    @property
-    def bust(self):
-        if self.min_value > 21:
+    def can_split(self):
+        """
+        :return: True if the hand can be split (2 of the same card, ignoreing suits)
+        """
+        if len(self.cards)==2 and self.cards[0].name == self.cards[1].name:
             return True
-        else: return False
+        else:
+            return False
 
+
+    ##
+    ##  Showing the hand
+    ##
     def __repr__(self):
+        """
+        :return: Text sting with no spaces between card names
+        """
         name = ""
         for c in self.cards:
             name += "{}".format(str(c))
         return name
 
     def __str__(self):
+        """
+        :return: Text sting with spaces between card names
+        """
         name = ""
         for c in self.cards:
             name += "{} ".format(str(c))
         return name
 
     def card_names(self):
+        """
+        :return: Text sting with no suits
+        """
         name = ""
         for c in self.cards:
             name += "{}".format(c.name)
         return name
 
     def show_player_hand(self):
-        return self.__repr__()
+        """
+        :return: The text string for the hand
+        """
+        return self.__str__()
 
     def show_player_value(self):
-        if self.black_jack: return "Blackjack"
-        return self.value
+        """
+        :return: All possible values for the hand or blackjack
+        """
+        if self.blackjack: return "Blackjack"
+        return self.values
 
     def show_dealer_hand(self):
+        """
+        :return: If blackjack, show the hand. Otherwise just show the first card
+        """
         name = ""
-        if self.black_jack: return self.show_player_hand()
+        if self.blackjack: return self.show_player_hand()
         for c in self.cards:
             name += "{} ".format(str(c))
             break
         return name + "##"
 
     def show_dealer_value(self):
+        """
+        :return: If blackjack, show blackjacj. Otherwise just show the value of the first card
+        """
         value = ""
-        if self.black_jack: return "Blackjack"
+        if self.blackjack: return "Blackjack"
         for c in self.cards:
-            value = c.value
+            value = c.values
             break
         return value
 
-
+    ##
+    ##  Playing the hand
+    ##
     def draw(self):
-        assert(deck is not None)
+        """
+        :return: Add a card to the hand
+        """
+        assert(self.player.game.deck is not None)
         self.cards.append(self.player.draw())
         return 0
 
     def stand(self):
-        self.standed = True
+        self.is_stand = True
         return 1
-
-    @property
-    def can_split(self):
-        if len(self.cards)==2 and self.cards[0].name == self.cards[1].name:
-            return True
-        else: return False
 
     def split(self):
         if self.can_split:
-            new_hands = [hand([self.cards[0], self.player.draw()],self.player),hand([self.cards[1], self.player.draw()],self.player)]
-
+            new_hands = [hand([self.cards[0], self.player.draw()],self.player,self.bet),hand([self.cards[1], self.player.draw()],self.player,self.bet)]
             return new_hands
 
 class player(object):
@@ -218,16 +272,15 @@ class player(object):
 
     def __init__(self, dealer=False, name="", current_game=None, play_type=4):
         self.hands = [] # Plural because of split possibilities
-        self.dealer = dealer
-        self.default_bet = 10
-        self.current_bet = 0
+        self.db_id = None
+        self.dealer = dealer # True if player is dealer
+        self.default_bet = 1
         self.money = 0
         self.hands_played = 0
         self.hands_won = 0
         self.hands_lost = 0
         self.money_won = 0
         self.money_lost = 0
-        self.has_insurance = False
 
         if self.dealer: self.play_type = player.RULES_PLAY
         else: self.play_type=play_type
@@ -237,32 +290,11 @@ class player(object):
 
         self.game = current_game
 
-    def deal_hand(self):
-        self.hands.append(hand(self.game.deck.deal(), player=self))
-
-    def show_deal(self):
-        hands = "{} playing: ".format(self.name)
-        for i, h in enumerate(self.hands):
-            if self.dealer:
-                hands += "{}: {} | ".format(h.show_dealer_hand(), h.show_dealer_value())
-            else:
-                hands += "{}: {} | ".format(h.show_player_hand(), h.show_player_value())
-        return print(hands)
-
-    def show_hand(self, hand, action):
-        if self.game.verbose: print("  {} | Cards {} | Value {}".format(action, hand.show_player_hand(), hand.show_player_value()))
-
     @property
-    def has_ace(self):
-        if self.hands[0].has_ace:
-            return True
-        else: return False
-
-    @property
-    def all_standed(self):
+    def all_hands_stand(self):
         if len(self.hands) == 0: return False
         for h in self.hands:
-            if h.standed is False:
+            if h.is_stand is False:
                 return False
         return True
 
@@ -270,9 +302,44 @@ class player(object):
     def has_blackjack(self):
         if len(self.hands) == 0: return False
         for h in self.hands:
-            if h.black_jack is True:
+            if h.blackjack is True:
                 return True
         return False
+
+    @property
+    def current_bet(self):
+        """
+        :return: Sum of all the best on the players hands
+        """
+        cbet = 0
+        for h in self.hands:
+            cbet += h.bet
+        return cbet
+
+    @property
+    def all_hands_bust(self):
+        if len(self.hands) == 0: return False
+        for h in self.hands:
+            if h.bust is False:
+                return False
+        return True
+
+    def deal_hand(self):
+        self.hands.append(hand(self.game.deck.deal(), player=self))
+        for h in self.hands:
+            self.bet(h)
+
+    def show_deal(self):
+        hands = "{} playing: ".format(self.name)
+        for i, h in enumerate(self.hands):
+            if self.dealer:
+                hands += "{}: {} | ".format(h.show_dealer_hand(), h.show_dealer_value())
+            else:
+                hands += "{}: {} ${} | ".format(h.show_player_hand(), h.show_player_value(),h.bet)
+        return print(hands)
+
+    def show_hand(self, hand, action):
+        if self.game.verbose: print("  {} | Cards {} | Value {} | Bet ${}".format(action, hand.show_player_hand(), hand.show_player_value(),hand.bet))
 
     def draw(self):
         return self.game.deck.draw()
@@ -287,18 +354,16 @@ class player(object):
                 options["doub"]=self.doubledown
         if hand.can_split and self.dealer is False:
             options["split"]=self.split
-        # if self.dealer is False and self.game.dealer.has_ace and self.has_insurance is False:
-        #     options.append(("Buy Insurance", self.insurance))
         return options
 
     def play_hands(self):
-        while self.all_standed is False:
+        while self.all_hands_stand is False:
             for h in self.hands:
                 if self.dealer:
-                    print("Dealer playing hand {} {}".format(h, h.value))
+                    print("Dealer playing hand {} {}".format(h, h.values))
                 else:
-                    print("{} playing hand {} {}".format(self.name, h, h.value))
-                if h.standed: continue
+                    print("{} playing hand {} {}".format(self.name, h, h.values))
+                if h.is_stand: continue
                 if self.play_type == player.MANUAL_PLAY:
                     self.manual_play_hand(h)
                 if self.play_type == player.RULES_PLAY:
@@ -307,12 +372,12 @@ class player(object):
                     self.auto_play_hand_random(h)
                 if self.play_type == player.WEIGHTED_PLAY:
                     self.auto_play_hand_weighted(h)
-        self.hands_played += len(self.hands)
 
-    def bet(self):
+
+    def bet(self, hand):
         if self.game.verbose: print("Betting {}".format(self.default_bet))
         self.money -= self.default_bet
-        self.current_bet += self.default_bet
+        hand.bet += self.default_bet
 
     def hit(self, hand):
         hand.actions_taken.append(["hit",repr(hand)])
@@ -325,90 +390,82 @@ class player(object):
         if self.game.verbose: print("  Stand")
 
     def split(self, hand):
-        self.bet()
-        # hand.actions_taken.append(["split",repr(hand)])
         chand = hand
         self.hands.remove(hand)
         shands = chand.split()
+        self.money -= self.default_bet
         shands[0].actions_taken.append(["split",repr(chand)])
         shands[1].actions_taken.append(["split",repr(chand)])
+
         self.hands.extend(shands)
         if self.game.verbose: print("  Split: {} | {}".format(shands[0],shands[1]))
 
-
     def doubledown(self, hand):
-        self.bet()
         hand.actions_taken.append(["doub",repr(hand)])
+        self.bet(hand)
         hand.draw()
-        hand.stand()
+        if hand.bust:
+            self.bust(hand)
+        else:
+            self.stand(hand)
         self.show_hand(hand, "DDn")
-        hand.actions_taken.append(["stand",repr(hand)])
 
-    def insurance(self,hand):
-        if self.game.verbose: print("  Bought Insurance")
-        self.has_insurance = True
-        self.bet()
+    def bust(self, hand):
+        hand.stand()
+        hand.actions_taken.append(["bust",repr(hand)])
+        if self.game.verbose: print("  Busted")
 
-    def surrender(self):
-        pass
+    def lost_to_blackjack(self, hand):
+        hand.stand()
+        hand.actions_taken.append(["lost_to_blackjack",repr(hand)])
 
+    def push(self, hand):
+        hand.stand()
+        hand.actions_taken.append(["push",repr(hand)])
 
     def manual_play_hand(self, chand):
         pass
 
     def auto_play_hand_random(self, chand):
-        while not chand.standed:
+        while not chand.is_stand:
             if chand.bust:
                 self.bust(chand)
                 break
-            if not chand.bust and not chand.black_jack:
+            if not chand.bust and not chand.blackjack:
                 play_options = self.play_options(chand)
                 play_choice = play_options[random.choice(play_options.keys())]
                 play_choice(chand)
                 if play_choice == self.split:
                     break
-                # else:
-                    # self.show_hand(chand, action)
             else:
                 self.stand(chand)
 
     def auto_play_hand_rules(self, chand):
-        while not chand.standed:
+        while not chand.is_stand:
             if chand.bust:
                 self.bust(chand)
-            if not chand.bust and not chand.black_jack:
-                if chand.has_double_ace and chand.min_value <= 16:
-                    self.hit(chand)
-                elif chand.max_value <= 16:
-                    self.hit(chand)
-                elif chand.max_value == 17 and chand.soft:
+            if not chand.bust and not chand.blackjack:
+                if chand.max_value == 17 and chand.min_value < 17 and chand.soft:
+                    #If it is a hard 17 don't follow these rules
+                    # A+6 = True
+                    # A+T+5 = False
                     if self.game.rules["soft_17_hit"]:
                         self.stand(chand)
                     else:
                         self.hit(chand)
+                elif chand.max_value <= 16:
+                    # Hit if hand is 16 or less. Max value gives largest value 21 or below so this doesn't
+                    #  need any more qualifiers
+                    self.hit(chand)
                 else:
                     self.stand(chand)
 
-    def bust(self, hand):
-        hand.standed = True
-        print("Bust")
-        hand.actions_taken.append(["bust",repr(hand)])
-        if self.game.verbose: print("  Busted")
-
-    @property
-    def all_hands_bust(self):
-        if len(self.hands) == 0: return False
-        for h in self.hands:
-            if h.bust is False:
-                return False
-        return True
-
     def auto_play_hand_weighted(self, chand):
-        while not chand.standed:
+        while not chand.is_stand:
             if chand.bust:
                 self.bust(chand)
                 break
-            if not chand.bust and not chand.black_jack:
+            if not chand.bust and not chand.blackjack:
                 choice = self.game.get_matchup_choice(chand)
                 play_options = self.play_options(chand)
                 if not choice or choice not in play_options:
@@ -418,44 +475,58 @@ class player(object):
                 play_choice(chand)
                 if play_choice == self.split:
                     break
-                # else:
-                    # self.show_hand(chand, action)
+            elif chand.blackjack:
+                self.stand(chand)
+
             else:
+                print("NO ACTION {}".format(chand))
                 self.stand(chand)
 
     def clear_hands(self):
         for h in self.hands:
-            self.game.deck.return_cards_from_hand(h.cards)
+            self.game.deck.return_cards(h.cards)
         self.hands = []
         self.has_insurance = False
 
-    def lost_hand(self, money_lost,hand):
-        if self.game.verbose: print("\nPlayer: {} lost the hand".format(self.name))
+    def lost_hand(self, money_lost, hand):
+        if self.game.verbose: print("\n{} lost the hand".format(self.name))
         self.hands_lost += 1
+        self.hands_played += 1
         self.money_lost += money_lost
         self.game.update_matchups(hand,-1,money_lost)
-        print(hand.actions_taken)
 
-    def won_hand(self, money_won,hand):
-        if self.game.verbose: print("\nPlayer: {} won the hand".format(self.name))
+        # print(hand.actions_taken)
+
+    def won_hand(self, money_won, hand):
+        if self.game.verbose: print("\n{} won the hand".format(self.name))
         self.hands_won += 1
+        self.hands_played += 1
         self.money_won += money_won
         self.money += money_won
         self.game.update_matchups(hand,1,money_won)
-        print(hand.actions_taken)
+        # print(hand.actions_taken)
+
+    def push_hand(self, money_push, hand):
+        if self.game.verbose: print("\nP{} push the hand".format(self.name))
+        self.hands_played += 1
+        self.money += money_push
+        self.game.update_matchups(hand,0,money_push)
+        # print(hand.actions_taken)
+
 
     def standings(self):
-        print("{} | Win/Loss {}/{} ({}%) | Win/Loss ${}/${} ({}%) | Current Money ${}".format(self.name,self.hands_won,self.hands_lost,round(self.hands_won/(self.hands_won+self.hands_lost),4)*100,round(self.money_won,2),round(self.money_lost,2),round(self.money_won/(self.money_won+self.money_lost),4)*100, self.money))
+        print("{} | Win/Loss {}/{} ({}%) | Win/Loss ${}/${} | Current Money ${}".format(self.name,self.hands_won,self.hands_lost,round(self.hands_won/(self.hands_played),4)*100,round(self.money_won,2),round(self.money_lost,2), self.money))
 
 class game(object):
-    def __init__(self, players=1, num_decks=1, deck_penetration=50, backjack_payout=1.2, soft_17_hit=False, multi_split=False, allow_insurance=False, allow_surrender=False, verbose=False):
+    def __init__(self, players=1, num_decks=1, deck_penetration=50, backjack_payout=1.2, soft_17_hit=False, multi_split=False, verbose=True):
         self.deck = deck(decks=num_decks, deck_penetration=deck_penetration)
+        self.db_id = None
         self.players = []
         self.dealer = None
         self.num_players = players
         self.verbose = verbose
         self.matchups = {}
-        self.rules = {"soft_17_hit":soft_17_hit,"hit_until":16,"multi_split":multi_split,"allow_insurance":allow_insurance,"blackjack_payout":backjack_payout}
+        self.rules = {"soft_17_hit":soft_17_hit,"hit_until":16,"multi_split":multi_split,"blackjack_payout":backjack_payout}
 
     def start_game(self):
         for i,p in enumerate(range(self.num_players)):
@@ -464,21 +535,22 @@ class game(object):
         self.game_cycle()
 
     def game_cycle(self):
-        for i in range(100000):
+        for i in range(1000):
             self.deal_hands()
             if not self.peek():
                 self.play_hands()
             self.payout()
             self.clear_table()
         for m in self.matchups:
-            if self.matchups[m].played >= 10:
+            if self.matchups[m].played >= 1:
                 print(self.matchups[m])
-        print("Done")
+        for p in self.players:
+            p.standings()
 
+        print("Done")
 
     def deal_hands(self):
         for p in self.players:
-            p.bet()
             p.deal_hand()
             p.show_deal()
         self.dealer.deal_hand()
@@ -527,31 +599,34 @@ class game(object):
         for p in self.players:
             for h in p.hands:
                 if h.min_value > 21:
-                    p.lost_hand(p.current_bet / len(p.hands),h)
+                    p.lost_hand(h.bet,h)
                     # print(1)
-                elif h.black_jack and not dealer_hand.black_jack:
-                    p.won_hand((p.current_bet / len(p.hands))*2*self.rules["blackjack_payout"],h)
+                elif h.blackjack and not dealer_hand.blackjack:
+                    p.won_hand(h.bet*2*self.rules["blackjack_payout"],h)
                     # print(2)
-                elif dealer_hand.black_jack and not h.black_jack:
-                    p.lost_hand(p.current_bet / len(p.hands),h)
+                elif dealer_hand.blackjack and not h.blackjack:
+                    p.lost_to_blackjack(h)
+                    p.lost_hand(h.bet,h)
                     # print(3)
                 elif dealer_hand.bust and not h.bust:
-                    p.won_hand((p.current_bet / len(p.hands))*2,h)
+                    p.won_hand(h.bet*2,h)
                     # print(4)
                 elif not dealer_hand.bust and h.bust:
-                    p.lost_hand(p.current_bet / len(p.hands),h)
+                    p.lost_hand(h.bet,h)
                     # print(5)
-                elif not h.black_jack and not dealer_hand.black_jack:
+                elif not h.blackjack and not dealer_hand.blackjack:
                     if h.max_value > dealer_hand.max_value:
-                        p.won_hand((p.current_bet / len(p.hands))*2,h)
+                        p.won_hand(h.bet*2,h)
                         # print(6)
                     elif h.max_value < dealer_hand.max_value:
-                        p.lost_hand(p.current_bet / len(p.hands),h)
+                        p.lost_hand(h.bet,h)
                         # print(7)
+                    else:
+                        p.push(h)
+                        p.push_hand(h.bet,h)
                 else:
-                    # print(8)
-                    pass
-            p.current_bet = 0
+                    p.push(h)
+                    p.push_hand(h.bet,h)
 
 
     def clear_table(self):
@@ -571,24 +646,38 @@ class game(object):
 class hand_matchup(object):
     def __init__(self, player_hand, dealer_hand):
         self.name = hand_matchup.matchup_string(player_hand,dealer_hand)
-        self.action_record = {"hit":{"played":0,"won":0,"lost":0,"mwon":0,"mlost":0},"stand":{"played":0,"won":0,"lost":0,"mwon":0,"mlost":0},"split":{"played":0,"won":0,"lost":0,"mwon":0,"mlost":0},"doub":{"played":0,"won":0,"lost":0,"mwon":0,"mlost":0}}
+        self.db_id = None
+        self.action_record = {"hit":{"played":0,"won":0,"lost":0,"mwon":0,"mlost":0},
+                              "stand":{"played":0,"won":0,"lost":0,"mwon":0,"mlost":0},
+                              "split":{"played":0,"won":0,"lost":0,"mwon":0,"mlost":0},
+                              "doub":{"played":0,"won":0,"lost":0,"mwon":0,"mlost":0},
+                              "lost_to_blackjack":{"played":0,"won":0,"lost":0,"mwon":0,"mlost":0},
+                              "push":{"played":0,"won":0,"lost":0,"mwon":0,"mlost":0},
+                              "bust":{"played":0,"won":0,"lost":0,"mwon":0,"mlost":0}
+                              }
 
     @property
     def played(self):
-        return self.action_record["hit"]["played"]+self.action_record["stand"]["played"]+self.action_record["split"]["played"]+self.action_record["doub"]["played"]
+        return max(self.action_record["hit"]["played"]+\
+               self.action_record["stand"]["played"]+\
+               self.action_record["split"]["played"]+\
+               self.action_record["doub"]["played"]+\
+               self.action_record["lost_to_blackjack"]["lost"],1)
 
-    def update_action(self, action, won, mwon):
-        if action == "bust":
-            action = "stand"
-        self.action_record[action]["played"] += 1
-        if won > 0:
-            self.action_record[action]["won"] += won
-            self.action_record[action]["mwon"] += mwon
-        elif won > 0:
-            self.action_record[action]["lost"] -= won #minus negative = addition
-            self.action_record[action]["mlost"] += mwon
-        # print(self.__repr__())
+    @property
+    def won(self):
+        return self.action_record["hit"]["won"]+\
+               self.action_record["stand"]["won"]+\
+               self.action_record["split"]["won"]+\
+               self.action_record["doub"]["won"]
 
+    @property
+    def lost(self):
+        return self.action_record["hit"]["lost"]+\
+               self.action_record["stand"]["lost"]+\
+               self.action_record["split"]["lost"]+\
+               self.action_record["doub"]["lost"]+\
+               self.action_record["lost_to_blackjack"]["lost"]
     @property
     def can_split(self):
         self_string = self.name
@@ -602,7 +691,11 @@ class hand_matchup(object):
         if self.action_record["hit"]["played"] > 0:
             return round(self.action_record["hit"]["won"]/self.action_record["hit"]["played"]*100,2)
         else:
-            return "Unknown"
+            return "UNKN"
+
+    @property
+    def hit_report(self):
+        return "HIT {}/{} {}% @ {}% Win".format(self.action_record["hit"]["played"],self.played,round(self.action_record["hit"]["played"]/self.played*100,2),self.hit_prob)
 
     @property
     def split_prob(self):
@@ -610,22 +703,46 @@ class hand_matchup(object):
             return round(self.action_record["split"]["won"]/self.action_record["split"]["played"]*100,2)
         else:
             if self.can_split:
-                return "Unknown"
+                return "UNKN"
             return None
+    
+    @property
+    def split_report(self):
+        return "Split {}/{} {}% @ {}% Win".format(self.action_record["split"]["played"],self.played,round(self.action_record["split"]["played"]/self.played*100,2),self.split_prob)
 
     @property
     def stand_prob(self):
         if self.action_record["stand"]["played"] > 0:
             return round(self.action_record["stand"]["won"]/self.action_record["stand"]["played"]*100,2)
         else:
-           return "Unknown"
-
+           return "UNKN"
+    
+    @property
+    def stand_report(self):
+        return "STAND {}/{} {}% @ {}% Win".format(self.action_record["stand"]["played"],self.played,round(self.action_record["stand"]["played"]/self.played*100,2),self.stand_prob)
+    
     @property
     def doub_prob(self):
         if self.action_record["doub"]["played"] > 0:
             return round(self.action_record["doub"]["won"]/self.action_record["doub"]["played"]*100,2)
         else:
-           return "Unknown"
+           return "UNKN"
+    
+    @property
+    def doub_report(self):
+        return "DOUB {}/{} {}% @ {}% Win".format(self.action_record["doub"]["played"],self.played,round(self.action_record["doub"]["played"]/self.played*100,2),self.doub_prob)
+
+    @property
+    def bust_report(self):
+        return "BUST {}/{} {}%".format(self.action_record["bust"]["played"],self.played,round(self.action_record["bust"]["played"]/self.played*100,2))
+
+    @property
+    def push_report(self):
+        return "PUSH {}/{} {}%".format(self.action_record["push"]["played"],self.played,round(self.action_record["push"]["played"]/self.played*100,2))
+
+    @property
+    def l2bj_report(self):
+        return "L2BJ {}/{} {}%".format(self.action_record["lost_to_blackjack"]["played"],self.played,round(self.action_record["lost_to_blackjack"]["played"]/self.played*100,2))
 
     @property
     def probabilities(self):
@@ -634,9 +751,27 @@ class hand_matchup(object):
         else:
             probs = {"hit":self.hit_prob,"stand":self.stand_prob,"doub":self.stand_prob}
         for p in probs:
-            if probs[p] == "Unknown":
+            if probs[p] == "UNKN":
                 probs[p] = 50
         return probs
+
+    def update_action(self, action, won, mwon):
+        self.action_record[action]["played"] += 1
+        if won > 0:
+            # print("won",action,won,mwon)
+            self.action_record[action]["won"] += won
+            self.action_record[action]["mwon"] += mwon
+        elif won < 0:
+            # print("lost",action,won,mwon)
+            self.action_record[action]["lost"] -= won #minus negative == addition
+            self.action_record[action]["mlost"] += mwon
+        else:
+            pass
+            # print(action)
+            #print("PUSH--")
+            #self.action_record["push"]["played"] += 1
+
+        # print(self.__repr__())
 
     def pick_action(self):
         choice = None
@@ -651,9 +786,9 @@ class hand_matchup(object):
 
     def __repr__(self):
         if self.can_split:
-            return "{} = PLAYED: {} | HIT: {}% | DOU: {}% | STD: {}% | SPT: {}%".format(self.name, self.played, self.hit_prob, self.doub_prob, self.stand_prob, self.split_prob)
+            return "{} = PLAYED: {} {}% | {} | {} | {} | {} | {} | {} | {}".format(self.name, self.played, round(self.won/self.played*100,2), self.stand_report, self.hit_report, self.doub_report, self.split_prob, self.push_report, self.bust_report, self.l2bj_report)
         else:
-            return "{} = PLAYED: {} | HIT: {}% | DOU: {}% | STD: {}%".format(self.name,self.played,self.hit_prob,self.doub_prob,self.stand_prob)
+            return "{} = PLAYED: {} {}% | {} | {} | {} | {} | {} | {}".format(self.name, self.played, round(self.won/self.played*100,2), self.stand_report, self.hit_report, self.doub_report, self.push_report, self.bust_report, self.l2bj_report)
 
 
     def __str__(self):
@@ -662,10 +797,18 @@ class hand_matchup(object):
     @staticmethod
     def matchup_string(player_hand, dealer_hand):
         if type(player_hand) == hand:
-            return player_hand.card_names()+"+"+repr(dealer_hand)[0]
+            return hand_matchup.sort_string(player_hand.card_names())+"+"+repr(dealer_hand)[0]
         else:
             player_hand = player_hand.translate({ord(i):None for i in "♣♠♥♦"})
-            return player_hand+"+"+repr(dealer_hand)[0]
+            return hand_matchup.sort_string(player_hand)+"+"+repr(dealer_hand)[0]
+
+    @staticmethod
+    def sort_string(cards):
+        sorted_cards = ''.join(sorted(cards[:2]))
+        return sorted_cards+cards[2:]
+
+
+
 
 def weighted_choice(choices):
     total = sum(w for c, w in choices.items())
