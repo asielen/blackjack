@@ -1,5 +1,5 @@
 import random
-
+import database as db
 
 class deck(object):
     """
@@ -279,6 +279,7 @@ class player(object):
         self.hands_played = 0
         self.hands_won = 0
         self.hands_lost = 0
+        self.hands_push = 0
         self.money_won = 0
         self.money_lost = 0
 
@@ -359,10 +360,11 @@ class player(object):
     def play_hands(self):
         while self.all_hands_stand is False:
             for h in self.hands:
-                if self.dealer:
-                    print("Dealer playing hand {} {}".format(h, h.values))
-                else:
-                    print("{} playing hand {} {}".format(self.name, h, h.values))
+                if self.game.verbose:
+                    if self.dealer:
+                        print("Dealer playing hand {} {}".format(h, h.values))
+                    else:
+                        print("{} playing hand {} {}".format(self.name, h, h.values))
                 if h.is_stand: continue
                 if self.play_type == player.MANUAL_PLAY:
                     self.manual_play_hand(h)
@@ -509,16 +511,27 @@ class player(object):
     def push_hand(self, money_push, hand):
         if self.game.verbose: print("\nP{} push the hand".format(self.name))
         self.hands_played += 1
+        self.hands_push += 1
         self.money += money_push
         self.game.update_matchups(hand,0,money_push)
         # print(hand.actions_taken)
 
 
     def standings(self):
-        print("{} | Win/Loss {}/{} ({}%) | Win/Loss ${}/${} | Current Money ${}".format(self.name,self.hands_won,self.hands_lost,round(self.hands_won/(self.hands_played),4)*100,round(self.money_won,2),round(self.money_lost,2), self.money))
+        print("{} | Win/Loss/Push/Total {}/{}/{}/{} ({}%) | Win/Loss ${}/${} | Current Money ${}".format(self.name,self.hands_won,self.hands_lost,self.hands_push,self.hands_played,round(self.hands_won/(self.hands_played),4)*100,round(self.money_won,2),round(self.money_lost,2), self.money))
+
+    def _player_array(self):
+        return (self.game.db_id,
+                self.name,
+                self.hands_played,
+                self.hands_won,
+                self.hands_lost,
+                self.money_won,
+                self.money_lost,
+                self.money)
 
 class game(object):
-    def __init__(self, players=1, num_decks=1, deck_penetration=50, backjack_payout=1.2, soft_17_hit=False, multi_split=False, verbose=True):
+    def __init__(self, players=1, num_decks=1, deck_penetration=0, backjack_payout=1.2, soft_17_hit=False, multi_split=False, verbose=False):
         self.deck = deck(decks=num_decks, deck_penetration=deck_penetration)
         self.db_id = None
         self.players = []
@@ -535,26 +548,29 @@ class game(object):
         self.game_cycle()
 
     def game_cycle(self):
-        for i in range(1000):
+        self.load_game()
+        for i in range(100000):
+            print("HAND {}".format(i))
             self.deal_hands()
             if not self.peek():
                 self.play_hands()
             self.payout()
             self.clear_table()
-        for m in self.matchups:
-            if self.matchups[m].played >= 1:
-                print(self.matchups[m])
+        # for m in self.matchups:
+        #     if self.matchups[m].played >= 1:
+        #         print(self.matchups[m])
         for p in self.players:
             p.standings()
+        self.save_matchups()
 
         print("Done")
 
     def deal_hands(self):
         for p in self.players:
             p.deal_hand()
-            p.show_deal()
+            if self.verbose: p.show_deal()
         self.dealer.deal_hand()
-        self.dealer.show_deal()
+        if self.verbose: self.dealer.show_deal()
         self.create_matchups()
 
     def create_matchups(self):
@@ -633,7 +649,7 @@ class game(object):
         for p in self.players:
             p.clear_hands()
             p.standings()
-            print("")
+            # print("")
         self.dealer.clear_hands()
 
     @property
@@ -642,10 +658,131 @@ class game(object):
             return self.dealer.hands[0]
         return None
 
+    @property
+    def hands_played(self):
+        return 0
+
+    # Database stuff
+    def load_game(self):
+        sql = "SELECT id FROM games WHERE decks={} AND penetration={} AND players={} AND soft_17_hit={} AND hit_until={} AND multi_split={} AND blackjack_payout={}".format(*self._game_array)
+        game_id = db.lte_run_sql(sql, one=True)
+        if game_id is None:
+            db.lte_run_sql("INSERT INTO games(decks, penetration, players, soft_17_hit, hit_until, multi_split, blackjack_payout) VALUES (?,?,?,?,?,?,?)",insert_list=self._game_array,one=True)
+            game_id = db.lte_run_sql(sql, one=True)
+        self.db_id = game_id
+        self.load_matchups()
+
+    def save_game(self):
+        self.save_matchups()
+
+    def load_matchups(self):
+        print("Loading Matchups")
+        sql = "SELECT id, " \
+              "matchup_name," \
+              "player_hand, " \
+              "dealer_card, " \
+              "stand_played," \
+              "stand_won," \
+              "stand_lost," \
+              "stand_mwon," \
+              "stand_mlost," \
+              "hit_played," \
+              "hit_won," \
+              "hit_lost," \
+              "hit_mwon," \
+              "hit_mlost," \
+              "doub_played," \
+              "doub_won," \
+              "doub_lost," \
+              "doub_mwon," \
+              "doub_mlost," \
+              "split_played," \
+              "split_won," \
+              "split_lost," \
+              "split_mwon," \
+              "split_mlost," \
+              "push_played, " \
+              "lost_to_blackjack_played, " \
+              "lost_to_blackjack_mlost, " \
+              "bust_played, " \
+              "bust_mlost " \
+              "FROM matchups WHERE game_id={}".format(self.db_id)
+        matchups = db.lte_run_sql(sql)
+        if matchups:
+            for m in matchups:
+                self.build_matchup_from_array(m)
+        print("{} Matchups Loaded".format(len(self.matchups)))
+
+    def build_matchup_from_array(self, m_array):
+        if len(m_array) != 29: print(len(m_array),"LEN ERROR")
+        else:
+            new_matchup = hand_matchup(m_array[2],m_array[3])
+            new_matchup.db_id = m_array[0]
+            new_matchup.action_record = {
+                "stand":{"played":m_array[4],"won":m_array[5],"lost":m_array[6],"mwon":m_array[7],"mlost":m_array[8]},
+                "hit":{"played":m_array[9],"won":m_array[10],"lost":m_array[11],"mwon":m_array[12],"mlost":m_array[13]},
+                "doub":{"played":m_array[14],"won":m_array[15],"lost":m_array[16],"mwon":m_array[17],"mlost":m_array[18]},
+                "split":{"played":m_array[19],"won":m_array[20],"lost":m_array[21],"mwon":m_array[22],"mlost":m_array[23]},
+                "lost_to_blackjack":{"played":m_array[25],"won":0,"lost":m_array[25],"mwon":0,"mlost":m_array[26]},
+                "push":{"played":m_array[24],"won":0,"lost":0,"mwon":0,"mlost":0},
+                "bust":{"played":m_array[27],"won":0,"lost":m_array[27],"mwon":0,"mlost":m_array[28]}
+                }
+            self.matchups[new_matchup.name] = new_matchup
+
+
+    def save_matchups(self):
+        print("Saving Matchups")
+        matchup_lists = []
+        for m in self.matchups:
+            matchup_lists.append((self.db_id,)+self.matchups[m]._matchup_array)
+        sql = "DELETE FROM matchups WHERE game_id={}".format(self.db_id)
+        db.lte_run_sql(sql)
+        sql2 = 'INSERT INTO matchups(game_id, ' \
+              'matchup_name, ' \
+              'player_hand, ' \
+              'dealer_card, ' \
+              'player_max_value, ' \
+              'player_min_value,' \
+              'stand_played,' \
+              'stand_won,' \
+              'stand_lost,' \
+              'stand_mwon,' \
+              'stand_mlost,' \
+              'hit_played,' \
+              'hit_won,' \
+              'hit_lost,' \
+              'hit_mwon,' \
+              'hit_mlost,' \
+              'doub_played,' \
+              'doub_won,' \
+              'doub_lost,' \
+              'doub_mwon,' \
+              'doub_mlost,' \
+              'split_played,' \
+              'split_won,' \
+              'split_lost,' \
+              'split_mwon,' \
+              'split_mlost,' \
+              'push_played, ' \
+              'lost_to_blackjack_played, ' \
+              'lost_to_blackjack_mlost, ' \
+              'bust_played, ' \
+              'bust_mlost) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+        print(db.lte_batch_update(sql2,matchup_lists))
+        print("{} Matchups Saved".format(len(matchup_lists)))
+
+    @property
+    def _game_array(self):
+        """
+        :return: Array used to save and load the game
+        """
+        return (int(self.deck.deck_size/52),self.deck.target_deck_penetration,self.num_players,int(self.rules["soft_17_hit"]),self.rules["hit_until"],int(self.rules["multi_split"]),self.rules["blackjack_payout"])
 
 class hand_matchup(object):
+
     def __init__(self, player_hand, dealer_hand):
         self.name = hand_matchup.matchup_string(player_hand,dealer_hand)
+        if "'" in self.name: print(self.name)
         self.db_id = None
         self.action_record = {"hit":{"played":0,"won":0,"lost":0,"mwon":0,"mlost":0},
                               "stand":{"played":0,"won":0,"lost":0,"mwon":0,"mlost":0},
@@ -655,6 +792,40 @@ class hand_matchup(object):
                               "push":{"played":0,"won":0,"lost":0,"mwon":0,"mlost":0},
                               "bust":{"played":0,"won":0,"lost":0,"mwon":0,"mlost":0}
                               }
+
+    CARD_VALUES = {"A":[1,11],"2":[2],"3":[3],"4":[4],"5":[5],"6":[6],"7":[7],"8":[8],"9":[9],"T":[10],"J":[10],"Q":[10],"K":[10]}
+    
+    @staticmethod
+    def values(hand):
+        values = []
+        for c in hand:
+            if values == []:
+                values = hand_matchup.CARD_VALUES[c]
+            else:
+                values = [sum([x,y]) for x in hand_matchup.CARD_VALUES[c] for y in values]
+        return values
+            
+    @property
+    def player_hand(self):
+        return self.name.split("+")[0]
+
+    @property
+    def dealer_hand(self):
+        return self.name.split("+")[1]
+
+    
+    @property
+    def player_hand_max_value(self):
+        value_list = hand_matchup.values(self.player_hand)
+        max_val = max(value_list)
+        min_val = min(value_list)
+        if max_val > 21 and min_val < 21 and len(value_list) > 1:
+            max_val = max(v for v in value_list if v <= 21)
+        return max_val
+
+    @property
+    def player_hand_min_value(self):
+        return min(hand_matchup.values(self.player_hand))
 
     @property
     def played(self):
@@ -688,19 +859,20 @@ class hand_matchup(object):
 
     @property
     def hit_prob(self):
-        if self.action_record["hit"]["played"] > 0:
-            return round(self.action_record["hit"]["won"]/self.action_record["hit"]["played"]*100,2)
+        if self.action_record["hit"]["played"] != 0:
+            return round(((self.action_record["hit"]["mwon"]-self.action_record["hit"]["mlost"])/self.action_record["hit"]["played"]),2)*100
+            # return round(self.action_record["hit"]["won"]/self.action_record["hit"]["played"]*100,2)
         else:
             return "UNKN"
 
     @property
     def hit_report(self):
-        return "HIT {}/{} {}% @ {}% Win".format(self.action_record["hit"]["played"],self.played,round(self.action_record["hit"]["played"]/self.played*100,2),self.hit_prob)
+        return "HIT {}/{} {}% @ {}% {}|{}".format(self.action_record["hit"]["played"],self.played,round(self.action_record["hit"]["played"]/self.played*100,2),self.hit_prob,self.action_record["hit"]["mwon"],self.action_record["hit"]["mlost"])
 
     @property
     def split_prob(self):
-        if self.action_record["split"]["played"] > 0:
-            return round(self.action_record["split"]["won"]/self.action_record["split"]["played"]*100,2)
+        if self.action_record["split"]["played"] != 0:
+            return round(((self.action_record["split"]["mwon"]-self.action_record["split"]["mlost"])/self.action_record["split"]["played"]),2)*100
         else:
             if self.can_split:
                 return "UNKN"
@@ -708,29 +880,29 @@ class hand_matchup(object):
     
     @property
     def split_report(self):
-        return "Split {}/{} {}% @ {}% Win".format(self.action_record["split"]["played"],self.played,round(self.action_record["split"]["played"]/self.played*100,2),self.split_prob)
+        return "Split {}/{} {}% @ {}%".format(self.action_record["split"]["played"],self.played,round(self.action_record["split"]["played"]/self.played*100,2),self.split_prob)
 
     @property
     def stand_prob(self):
-        if self.action_record["stand"]["played"] > 0:
-            return round(self.action_record["stand"]["won"]/self.action_record["stand"]["played"]*100,2)
+        if self.action_record["stand"]["played"] != 0:
+            return round(((self.action_record["stand"]["mwon"]-self.action_record["stand"]["mlost"])/self.action_record["stand"]["played"]),2)*100
         else:
            return "UNKN"
     
     @property
     def stand_report(self):
-        return "STAND {}/{} {}% @ {}% Win".format(self.action_record["stand"]["played"],self.played,round(self.action_record["stand"]["played"]/self.played*100,2),self.stand_prob)
+        return "STAND {}/{} {}% @ {}%".format(self.action_record["stand"]["played"],self.played,round(self.action_record["stand"]["played"]/self.played*100,2),self.stand_prob)
     
     @property
     def doub_prob(self):
-        if self.action_record["doub"]["played"] > 0:
-            return round(self.action_record["doub"]["won"]/self.action_record["doub"]["played"]*100,2)
+        if self.action_record["doub"]["played"] != 0:
+            return round(((self.action_record["doub"]["mwon"]-self.action_record["doub"]["mlost"])/self.action_record["doub"]["played"]),2)*100
         else:
            return "UNKN"
     
     @property
     def doub_report(self):
-        return "DOUB {}/{} {}% @ {}% Win".format(self.action_record["doub"]["played"],self.played,round(self.action_record["doub"]["played"]/self.played*100,2),self.doub_prob)
+        return "DOUB {}/{} {}% @ {}%".format(self.action_record["doub"]["played"],self.played,round(self.action_record["doub"]["played"]/self.played*100,2),self.doub_prob)
 
     @property
     def bust_report(self):
@@ -774,19 +946,20 @@ class hand_matchup(object):
         # print(self.__repr__())
 
     def pick_action(self):
+        MIN_RAND = 100
         choice = None
-        if self.played > 5:
+        if self.played > MIN_RAND*10:
             choice = weighted_choice(self.probabilities)
-            if choice and self.action_record[choice]["played"] > 1:
-                print("{} wins {}% of the time".format(choice,self.action_record[choice]["won"]/self.action_record[choice]["played"]*100))
+            if choice and self.action_record[choice]["played"] > MIN_RAND:
+                # print("{} wins {}% of the time ({})".format(choice,round(self.action_record[choice]["won"]/self.action_record[choice]["played"]*100,2),self.action_record[choice]["won"]))
                 return choice
         choice = random.choice(list(self.probabilities.keys()))
-        print("{} RANDOM".format(choice))
+        # print("{} RANDOM".format(choice))
         return choice
 
     def __repr__(self):
         if self.can_split:
-            return "{} = PLAYED: {} {}% | {} | {} | {} | {} | {} | {} | {}".format(self.name, self.played, round(self.won/self.played*100,2), self.stand_report, self.hit_report, self.doub_report, self.split_prob, self.push_report, self.bust_report, self.l2bj_report)
+            return "{} = PLAYED: {} {}% | {} | {} | {} | {} | {} | {} | {}".format(self.name, self.played, round(self.won/self.played*100,2), self.stand_report, self.hit_report, self.doub_report, self.split_report, self.push_report, self.bust_report, self.l2bj_report)
         else:
             return "{} = PLAYED: {} {}% | {} | {} | {} | {} | {} | {}".format(self.name, self.played, round(self.won/self.played*100,2), self.stand_report, self.hit_report, self.doub_report, self.push_report, self.bust_report, self.l2bj_report)
 
@@ -794,31 +967,71 @@ class hand_matchup(object):
     def __str__(self):
         return self.__repr__()
 
+    @property
+    def _matchup_array(self):
+        """
+        :return: Array used to save and load matchups
+        """
+        return (self.name,
+                self.player_hand,
+                self.dealer_hand,
+                self.player_hand_max_value,
+                self.player_hand_min_value,
+                self.action_record["stand"]["played"],
+                self.action_record["stand"]["won"],
+                self.action_record["stand"]["lost"],
+                self.action_record["stand"]["mwon"],
+                self.action_record["stand"]["mlost"],
+                self.action_record["hit"]["played"],
+                self.action_record["hit"]["won"],
+                self.action_record["hit"]["lost"],
+                self.action_record["hit"]["mwon"],
+                self.action_record["hit"]["mlost"],
+                self.action_record["doub"]["played"],
+                self.action_record["doub"]["won"],
+                self.action_record["doub"]["lost"],
+                self.action_record["doub"]["mwon"],
+                self.action_record["doub"]["mlost"],
+                self.action_record["split"]["played"],
+                self.action_record["split"]["won"],
+                self.action_record["split"]["lost"],
+                self.action_record["split"]["mwon"],
+                self.action_record["split"]["mlost"],
+                self.action_record["push"]["played"],
+                self.action_record["lost_to_blackjack"]["played"],
+                self.action_record["lost_to_blackjack"]["mlost"],
+                self.action_record["bust"]["played"],
+                self.action_record["bust"]["mlost"])
+
     @staticmethod
     def matchup_string(player_hand, dealer_hand):
         if type(player_hand) == hand:
             return hand_matchup.sort_string(player_hand.card_names())+"+"+repr(dealer_hand)[0]
         else:
             player_hand = player_hand.translate({ord(i):None for i in "♣♠♥♦"})
-            return hand_matchup.sort_string(player_hand)+"+"+repr(dealer_hand)[0]
+            if type(dealer_hand) == hand:
+                return hand_matchup.sort_string(player_hand)+"+"+repr(dealer_hand)[0]
+            else:
+                return hand_matchup.sort_string(player_hand)+"+"+dealer_hand[0]
 
     @staticmethod
     def sort_string(cards):
         sorted_cards = ''.join(sorted(cards[:2]))
         return sorted_cards+cards[2:]
 
-
-
-
 def weighted_choice(choices):
-    total = sum(w for c, w in choices.items())
+    min_v = min(w for c, w in choices.items())
+    adj = 0
+    if min_v < 0: adj = abs(min_v)
+    total = sum(w+adj for c, w in choices.items())
     r = random.uniform(0, total)
     if total == 0: return None
     upto = 0
     for c, w in choices.items():
-        if upto + w > r:
+        wa = w + adj
+        if upto + wa > r:
             return c
-        upto += w
+        upto += wa
     assert False, "Shouldn't get here"
 
 
