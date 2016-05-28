@@ -10,7 +10,7 @@ import arrow
 
 # THIS FILE SHOULD HAVE NO INTERNAL DEPENDENCIES
 
-project_directory = "VisuallyDatabase"
+project_directory = "blackjack"
 ##
 # SYSTEM
 ##

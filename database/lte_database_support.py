@@ -8,7 +8,7 @@ import system as syt
 
 
 
-def lte_batch_update(sql_text, csvfile, header_len=0):
+def lte_batch_update(sql_text, csvfile, header_len=0, db=database):
     """
 
     @param sql_text:
@@ -28,15 +28,15 @@ def lte_batch_update(sql_text, csvfile, header_len=0):
 
         if idx % 10000 == 0:
             timer.log_time(len(rows_to_process))
-            lte_run_batch_sql(sql_text, rows_to_process)
+            lte_run_batch_sql(sql_text, rows_to_process, db)
             rows_to_process = []
 
-    lte_run_batch_sql(sql_text, rows_to_process)
+    lte_run_batch_sql(sql_text, rows_to_process, db)
     timer.end()
 
 
-def lte_run_batch_sql(sql_text, values):
-    con = lite.connect(database)
+def lte_run_batch_sql(sql_text, values, db=database):
+    con = lite.connect(db)
 
     with con:
         c = con.cursor()
@@ -45,8 +45,8 @@ def lte_run_batch_sql(sql_text, values):
         # except:
         #     print("ERROR: {}".format(sys.exc_info()[0]))
 
-def lte_run_many_sql(sql_list):
-    con = lite.connect(database)
+def lte_run_many_sql(sql_list, db=database):
+    con = lite.connect(db)
 
     with con:
         c = con.cursor()
@@ -56,8 +56,8 @@ def lte_run_many_sql(sql_list):
         except Exception as e:
             print("Database Exception {}".format(e))
 
-def lte_run_sql(sql_text, insert_list=None, one=False):
-    con = lite.connect(database)
+def lte_run_sql(sql_text, insert_list=None, one=False, db=database):
+    con = lite.connect(db)
 
     result = None
     with con:
