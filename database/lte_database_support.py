@@ -10,7 +10,7 @@ import system as syt
 
 def lte_batch_update(sql_text, csvfile, header_len=0, db=database):
     """
-
+    For super large updates
     @param sql_text:
     @param csvfile:
     @param header_len;

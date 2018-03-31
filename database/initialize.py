@@ -18,21 +18,24 @@ def _initiate_database(data = db.database):
     con = lite.connect(data)
     with con:
 
-        con.execute("CREATE TABLE IF NOT EXISTS games(id INTEGER PRIMARY KEY,"
+        con.execute("CREATE TABLE IF NOT EXISTS players(id INTEGER PRIMARY KEY,"
+                    "name TEXT, "
                     "decks INTEGER, "
                     "penetration INTEGER, "
                     "players INTEGER, "
-                    "hands_played INTEGER, "
+                    "dealer INTEGER, "
                     "soft_17_hit INTEGER, "
                     "hit_until INTEGER, "
                     "multi_split INTEGER, "
                     "doub_after_split INTEGER, "
-                    "blackjack_payout FLOAT,"
-                    "play_style INTEGER,"
-                    "play_style_delay INTEGER);")
+                    "blackjack_payout ,"
+                    "play_style INTEGER, "
+                    "play_style_delay INTEGER, "
+                    "top INTEGER, "
+                    "game_string INTEGER);")
 
         con.execute("CREATE TABLE IF NOT EXISTS matchups(id INTEGER PRIMARY KEY,"
-                    "game_id INTEGER, "
+                    "player_id INTEGER, "
                     "matchup_name TEXT, "
                     "player_hand TEXT, "
                     "dealer_card TEXT, "
@@ -70,11 +73,11 @@ def _initiate_database(data = db.database):
                     "top_action TEXT, "
                     "top_action_prob FLOAT, "
                     "value_name TEXT, "
-                    "FOREIGN KEY (game_id) REFERENCES games(id));")
+                    "num_cards INTEGER, "
+                    "FOREIGN KEY (player_id) REFERENCES players(id));")
 
-        con.execute("CREATE TABLE IF NOT EXISTS hands(id INTEGER PRIMARY KEY,"
-                    "game_id INTEGER, "
-                    "player_name TEXT, "
+        con.execute("CREATE TABLE IF NOT EXISTS player_standings(id INTEGER PRIMARY KEY,"
+                    "player_id INTEGER, "
                     "hands_won INTEGER, "
                     "hands_lost INTEGER, "
                     "hands_push INTEGER, "
@@ -82,12 +85,11 @@ def _initiate_database(data = db.database):
                     "money_won FLOAT, "
                     "money_lost FLOAT, "
                     "money FLOAT, "
-                    "play_type INTEGER, "
                     "moving_avg_won FLOAT, "
                     "moving_avg_lost FLOAT, "
                     "moving_avg_push FLOAT, "
                     "moving_avg_played INTEGER, "
-                    "FOREIGN KEY (game_id) REFERENCES games(id));")
+                    "FOREIGN KEY (player_id) REFERENCES players(id));")
 
         con.execute("PRAGMA FOREIGN_KEYS=1;") # Enforce foreign keys
 

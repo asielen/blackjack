@@ -9,6 +9,7 @@ __author__ = 'andrew.sielen'
 SLOWPOOL = 10
 FASTPOOL = 35
 RUNNINGPOOL = SLOWPOOL
+PROXIES = None
 
 
 price_types_lookup = {}
