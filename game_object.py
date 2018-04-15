@@ -9,8 +9,6 @@ class Game(object):
     """
     http://wizardofvegas.com/guides/blackjack-survey/
     """
-    #How often to save
-    RECENT_HANDS_LEN = 100
 
     def __init__(self, play_string='', players=1, num_decks=1,
                  deck_penetration=90, backjack_payout=1.2,
@@ -23,6 +21,7 @@ class Game(object):
 
         self.db_id = None
         self.players = []
+        self.min_hands_played = 0
         self.dealer = None
         self.deck = None
         self.verbose = False #VERBOSE
@@ -187,22 +186,32 @@ class Game(object):
             self.players.append(Player.build_player(game=self))
         self.dealer = Player.build_player(dealer=1, game=self)
         Player.save_players(players=self.players+[self.dealer], game=self)
+        self.min_hands_played = min(p.hands_played for p in self.players)
         self.game_cycle(hands)
 
     def game_cycle(self, hands=1000):
+        print("\n--Starting Game--\n")
+        SCALE = 10
+        HANDS_ADJUST = self.min_hands_played
         for i in range(hands):
             self.deal_hands()
             if not self.peek():
                 self.play_hands()
             self.payout()
             self.clear_table()
-            if i > 10 and i % (Game.RECENT_HANDS_LEN * 10) == 0:
-                print("HAND {}".format(i))
-            if i > 10 and i % (Game.RECENT_HANDS_LEN*1000) == 0:
+            if i > 10 and (i % 1000 == 0 or (self.verbose and i % 100 == 0)):
+                print("# {} Hands Played".format(i))
+            hai = HANDS_ADJUST + i
+            if i > 10 and hai % SCALE == 0: #Does this 10 times for every save
+                Player.store_all_player_standings(self)
+            if i > 10 and hai % (SCALE*100) == 0:
                 Player.save_all_player_matchups(self)
                 Player.save_all_player_standings(self)
-            if i > 10 and i % Game.RECENT_HANDS_LEN == 0:
-                Player.store_all_player_standings(self)
+                Player.load_all_value_matchups(self)
+            #Hard Coded Scale for speed Factor based on exponential logging increase
+            if SCALE != 10000 and ((hai > 10000 and SCALE == 10) or (hai > 1000000 and SCALE == 100) or (hai > 100000000 and SCALE == 1000)):
+                SCALE = SCALE*10
+
         for p in self.players:
             p.standings()
         Player.save_all_player_matchups(self)
@@ -247,21 +256,21 @@ class Game(object):
                     p.lost_hand(h.bet, h)
                     # print(1)
                 elif h.blackjack and not dealer_hand.blackjack:
-                    p.won_hand(h.bet + (h.bet * self.rules["blackjack_payout"]), h)
+                    p.won_hand(h.bet, (h.bet * self.rules["blackjack_payout"]), h)
                     # print(2)
                 elif dealer_hand.blackjack and not h.blackjack:
                     p.lost_to_blackjack(h)
                     p.lost_hand(h.bet, h)
                     # print(3)
                 elif dealer_hand.bust and not h.bust:
-                    p.won_hand(h.bet * 2, h)
+                    p.won_hand(h.bet,h.bet, h)
                     # print(4)
                 elif not dealer_hand.bust and h.bust:
                     p.lost_hand(h.bet, h)
                     # print(5)
                 elif not h.blackjack and not dealer_hand.blackjack:
                     if h.max_value > dealer_hand.max_value:
-                        p.won_hand(h.bet * 2, h)
+                        p.won_hand(h.bet, h.bet, h)
                         # print(6)
                     elif h.max_value < dealer_hand.max_value:
                         p.lost_hand(h.bet, h)
@@ -292,13 +301,8 @@ class Game(object):
 
     @property
     def game_database(self):
-        # Eventually the last false wil be true or false for surrender
+        # Eventually the last false will be true or false for surrender
         return db.make_project_path("database/BJDB.sqlite")
-        # "database/BJDB{}-{}-{}-{}-{}-{}-False.sqlite".format(self.settings["players"], self.deck.deck_size,
-        #                                                        self.deck.target_deck_penetration,
-        #                                                            self.rules["blackjack_payout"],
-        #                                                            self.rules["multi_split"],
-        #                                                            self.rules["double_after_split"]))
 
     @property
     def bs_name(self):

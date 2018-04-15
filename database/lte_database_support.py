@@ -1,12 +1,11 @@
 # External
 import sqlite3 as lite
 
-
 # Internal
 from database import database
 import system as syt
 
-
+TIMEOUT = 1000 #ms
 
 def lte_batch_update(sql_text, csvfile, header_len=0, db=database):
     """
@@ -36,7 +35,7 @@ def lte_batch_update(sql_text, csvfile, header_len=0, db=database):
 
 
 def lte_run_batch_sql(sql_text, values, db=database):
-    con = lite.connect(db)
+    con = lite.connect(db, timeout = TIMEOUT)
 
     with con:
         c = con.cursor()
@@ -46,7 +45,7 @@ def lte_run_batch_sql(sql_text, values, db=database):
         #     print("ERROR: {}".format(sys.exc_info()[0]))
 
 def lte_run_many_sql(sql_list, db=database):
-    con = lite.connect(db)
+    con = lite.connect(db, timeout = TIMEOUT)
 
     with con:
         c = con.cursor()
@@ -57,7 +56,7 @@ def lte_run_many_sql(sql_list, db=database):
             print("Database Exception {}".format(e))
 
 def lte_run_sql(sql_text, insert_list=None, one=False, db=database):
-    con = lite.connect(db)
+    con = lite.connect(db, timeout = TIMEOUT)
 
     result = None
     with con:

@@ -1,10 +1,12 @@
 from deck_objects import Hand, HandMatchup
-import system as syt
 import database as db
-import random
-from datetime import datetime
-from basic_strategy_dicts import basic
 from basicStrategybuilder import get_strategy_map
+
+import system as syt
+
+import random
+import numpy as np
+from datetime import datetime
 
 class Player(object):
     MANUAL_PLAY = 1
@@ -12,7 +14,10 @@ class Player(object):
     RANDOM_PLAY = 3
     WEIGHTED_PLAY = 4
     BASIC_STRATEGY = 5
-    TOP_CHOICE = 6
+    # TOP_CHOICE = 6
+
+    #How often to save standings. Used in player object
+    RECENT_HANDS_LEN = 1000
 
     def __init__(self, dealer=0, name="", current_game=None, standings=None, id=None, matchups = None):
 
@@ -30,7 +35,7 @@ class Player(object):
         self.hands_push = 0
         self.money_won = 0
         self.money_lost = 0
-        self.recent_record = []
+        self.recent_record = [] # The money result of the last XXX hands. len defined by the game object
         self.value_matchups = {}
         self.matchups = {}
         self.standings2save = {}
@@ -46,8 +51,10 @@ class Player(object):
             self.money_lost = standings["money_lost"]
 
         self.play_style = 0
-        self.play_style_delay = 0
+        self.random_play_duration = 0
+        self.weighted_play_duration = 0
         self.top = 0
+        self.value_assist = 0
         self.game = current_game
 
 
@@ -267,42 +274,42 @@ class Player(object):
         self.hands = []
         self.has_insurance = False
 
-    def lost_hand(self, money_lost, hand):
-        self.update_matchups(hand, -1, money_lost)
+    def lost_hand(self, bet, hand):
+        self.update_matchups(hand, -1, bet)
         if self.game.verbose:
             print("LOST HAND {} to {}".format(repr(hand), repr(self.game.current_dealer_hand)))
             self.hand_result(hand)
         self.hands_lost += 1
         self.hands_played += 1
-        self.money_lost += money_lost
-        if len(self.recent_record) >= self.game.RECENT_HANDS_LEN:
+        self.money_lost += bet
+        if len(self.recent_record) >= Player.RECENT_HANDS_LEN:
             self.recent_record.pop(0)
-        self.recent_record.append(-money_lost)
+        self.recent_record.append(-bet)
         # print(hand.actions_taken)
 
-    def won_hand(self, money_won, hand):
-        self.update_matchups(hand, 1, money_won)
+    def won_hand(self, bet, winnings, hand):
+        self.update_matchups(hand, 1, winnings+bet)
         if self.game.verbose:
             print("WON HAND {} to {}".format(repr(hand), repr(self.game.current_dealer_hand)))
             self.hand_result(hand)
         self.hands_won += 1
         self.hands_played += 1
-        self.money_won += money_won
-        self.money += money_won
-        if len(self.recent_record) >= self.game.RECENT_HANDS_LEN:
+        self.money_won += winnings
+        self.money += winnings+bet
+        if len(self.recent_record) >= Player.RECENT_HANDS_LEN:
             self.recent_record.pop(0)
-        self.recent_record.append(money_won)
+        self.recent_record.append(winnings)
         # print(hand.actions_taken)
 
-    def push_hand(self, money_push, hand):
-        self.update_matchups(hand, 0, money_push)
+    def push_hand(self, bet, hand):
+        self.update_matchups(hand, 0, bet)
         if self.game.verbose:
             print("PUSH HAND {} to {}".format(repr(hand), repr(self.game.current_dealer_hand)))
             self.hand_result(hand)
         self.hands_played += 1
         self.hands_push += 1
-        self.money += money_push
-        if len(self.recent_record) >= self.game.RECENT_HANDS_LEN:
+        self.money += bet
+        if len(self.recent_record) >= Player.RECENT_HANDS_LEN:
             self.recent_record.pop(0)
         self.recent_record.append(0)
         # print(hand.actions_taken)
@@ -314,11 +321,11 @@ class Player(object):
                 print("      LOST TO BLACKJACK")
                 continue
             matchup = self.get_matchup(action[1])
-            result = "    matchup {} played {} times. won {}%\n".format(matchup.name,
+            result = "    matchup {} played {} times. won {:+.2f}%\n".format(matchup.name,
                                                                      matchup.played,
-                                                                     round((matchup.won / matchup.played)*100, 2))
+                                                                     (matchup.won / matchup.played)*100)
             if action[0].upper() == matchup.top_choiceP[0].upper():
-                result += "      played: {} returns {}%".format(
+                result += "      played: {} returns {:+.2f}%".format(
                                                                          action[0].upper(),
                                                                          round(((matchup.action_record[action[0]]["mwon"] -
                                                                                  matchup.action_record[action[0]][
@@ -327,7 +334,7 @@ class Player(object):
                                                                                2) * 100,
                                                                          matchup.top_choice[0].upper(),matchup.top_choice[1])
             else:
-                result += "      !!played: {} returns {}% !! top action {} returns {}%".format(
+                result += "      !!played: {} returns {:+.2f}% !! top action {} returns {:+.2f}%".format(
                                                                          action[0].upper(),
                                                                          round(((matchup.action_record[action[0]]["mwon"] -
                                                                                  matchup.action_record[action[0]][
@@ -341,10 +348,6 @@ class Player(object):
                 print("", end="")
 
     @property
-    def moving_avg_played(self):
-        return len(self.recent_record)
-
-    @property
     def moving_avg_won(self):
         return sum([m for m in self.recent_record if m > 0])
 
@@ -354,33 +357,65 @@ class Player(object):
 
     @property
     def moving_avg_push(self):
+        return sum([m for m in self.recent_record if m == 0]) \
+
+    @ property
+    def moving_avg_money(self):
+        return (self.moving_avg_won+self.moving_avg_lost+self.moving_avg_push)
+
+    @property
+    def count_recent_played(self):
+        return len(self.recent_record)
+
+    @property
+    def count_recent_won(self):
+        return len([m for m in self.recent_record if m > 0])
+
+    @property
+    def count_recent_lost(self):
+        return len([m for m in self.recent_record if m < 0])
+
+    @property
+    def count_recent_push(self):
         return len([m for m in self.recent_record if m == 0])
 
     @property
-    def moving_avg(self):
-        if self.moving_avg_played > 0:
-            return round((self.moving_avg_won + 0.5*self.moving_avg_push) / (self.moving_avg_won+self.moving_avg_lost+self.moving_avg_push), 4) * 100
+    def moving_avg_winnings(self):
+        if self.count_recent_played > 0:
+            # return round((self.moving_avg_won) / (self.moving_avg_won+self.moving_avg_lost), 4) * 100
+            return ((self.moving_avg_won + 0.5*self.moving_avg_push) / (self.moving_avg_won+self.moving_avg_lost+self.moving_avg_push)) * 100
+        return 0
+
+    @property
+    def count_recent_win_percent(self):
+        if self.count_recent_played > 0:
+            return ((self.count_recent_won+0.5*self.count_recent_push) / (self.count_recent_played)) * 100
         return 0
 
     def standings(self):
         print(
-            "{} | Win/Loss/Push/Total {}/{}/{}|{} ({}% | {}% +Pushes)  MA: {}/{}/{}|{} {}% | Win/Loss ${}/${} | Current Money ${} | {}%".format(
+            "{} | Win/Loss/Push/Total {}/{}/{}|{} ({:+.2f}% | {:+.2f}% +Pushes)  $MA: {}/{}/{}|{} {:+.2f}% | #MA: {}/{}/{}|{} {:+.2f}% | Win/Loss ${:+.2f}/${:+.2f} | Current Money ${:+.2f} | {:+.2f}%".format(
                 self.name,
                 self.hands_won,
                 self.hands_lost,
                 self.hands_push,
                 self.hands_played,
-                round((self.hands_won / (self.hands_played - self.hands_push)) * 100, 4),
-                round(((self.hands_won+(0.5*self.hands_push)) / self.hands_played) * 100, 4),
+                (self.hands_won / (self.hands_played - self.hands_push)) * 100,
+                ((self.hands_won+(0.5*self.hands_push)) / self.hands_played) * 100,
                 self.moving_avg_won,
                 self.moving_avg_lost,
                 self.moving_avg_push,
-                self.moving_avg_played,
-                self.moving_avg,
-                round(self.money_won, 2),
-                round(self.money_lost, 2),
-                round(self.money, 2),
-                round(self.money_won/(self.money_won+self.money_lost), 2)))
+                self.moving_avg_money,
+                self.moving_avg_winnings,
+                self.count_recent_won,
+                self.count_recent_lost,
+                self.count_recent_push,
+                self.count_recent_played,
+                self.count_recent_win_percent,
+                self.money_won,
+                self.money_lost,
+                self.money,
+                self.money_won/(self.money_won+self.money_lost)))
 
     @property
     def player_standings_array(self):
@@ -396,19 +431,19 @@ class Player(object):
             self.moving_avg_won,
             self.moving_avg_lost,
             self.moving_avg_push,
-            self.moving_avg_played
+            self.count_recent_played
         )
 
     @property
     def player_game_array(self):
-        return tuple([self.name, self.dealer, self.play_style, self.play_style_delay, self.top]+self.game.game_array)
+        return tuple([self.name, self.dealer, self.play_style, self.random_play_duration, self.weighted_play_duration, self.top, self.value_assist] + self.game.game_array)
 
 
     @staticmethod
     def save_players(players, game):
         save_array = [p.player_game_array for p in players if p.db_id is None and p.dealer==0]
         db.lte_run_batch_sql(
-            "INSERT INTO players(name, dealer, play_style, play_style_delay, top, decks, penetration, players,  soft_17_hit, hit_until, multi_split, doub_after_split, blackjack_payout, game_string) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO players(name, dealer, play_style, random_play_duration, weighted_play_duration, top, value_assist, decks, penetration, players,  soft_17_hit, hit_until, multi_split, doub_after_split, blackjack_payout, game_string) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             values=save_array, db=game.game_database)
         # Get player ids
         namesql = 'SELECT name, id FROM players WHERE name IN (%s)' % ','.join('?'*len(players))
@@ -425,7 +460,7 @@ class Player(object):
             Find all players that match the current game string
         :return:
         '''
-        sql = "SELECT id, name, play_style, play_style_delay, top FROM players WHERE game_string = '{}';".format(game.game_string)
+        sql = "SELECT id, name, play_style, random_play_duration, weighted_play_duration, top, value_assist FROM players WHERE game_string = '{}';".format(game.game_string)
         player_query = db.lte_run_sql(sql, db=game.game_database)
         player_map = {p[1]:p for p in player_query}
 
@@ -448,22 +483,23 @@ class Player(object):
 
     @staticmethod
     def load_player(player_list, game, dealer=0):
-        if len(player_list) != 5: return None
-        id, name, play_Style, play_style_delay, top = player_list
+        if len(player_list) != 7: return None
+        id, name, play_Style, random_play_duration, weighted_play_duration, top, value_assist = player_list
         player = None
         if play_Style == Player.RULES_PLAY:
             player = PlayerRules(name=name, id=id, dealer=dealer, current_game=game)
         elif play_Style == Player.RANDOM_PLAY:
             player = PlayerRandom(name=name, id=id, dealer=dealer, current_game=game)
         elif play_Style == Player.WEIGHTED_PLAY:
-            player = PlayerLearning(name=name, id=id, play_style_delay=play_style_delay, top_only=top, dealer=dealer, current_game=game)
+            player = PlayerLearning(name=name, id=id, random_play_duration=random_play_duration, weighted_play_duration=weighted_play_duration, enable_top=top, value_assist=value_assist, dealer=dealer, current_game=game)
         elif play_Style == Player.BASIC_STRATEGY:
             player = PlayerBasicStrategy(name=name, id=id, dealer=dealer, current_game=game)
         elif play_Style == Player.MANUAL_PLAY:
             player = PlayerManual(name=name, id=id, dealer=dealer, current_game=game)
         player.load_player_standings()
         player.load_player_matchups()
-        player.load_value_matchups()
+        if player.value_assist:
+            player.load_value_matchups()
         return player
 
     def load_player_standings(self):
@@ -485,13 +521,13 @@ class Player(object):
         self.standings2save[self.hands_played] = self.player_standings_array
 
     def save_player_standings(self):
-        print("Saving Player: {}".format(self.name))
         sql = "INSERT INTO player_standings(player_id, hands_won, hands_lost, hands_push, " \
                             "hands_played, money_won, money_lost, money, " \
                             "moving_avg_won, moving_avg_lost, moving_avg_push, moving_avg_played) " \
                             "values(?,?,?,?,?,?,?,?,?,?,?,?)"
         db.lte_batch_update(sql, csvfile=self.standings2save.values(), db=self.game.game_database)
         self.standings2save = {}
+        if self.game.verbose: print("Player Saved: {}".format(self.name))
 
     @staticmethod
     def save_all_player_standings(game):
@@ -547,19 +583,39 @@ class Player(object):
     #     self.save_matchups()
 
     def load_value_matchups(self):
-        print("Loading Value Matchups")
-        sql = "SELECT value_name, count(value_name), (SUM(stand_mwon)-SUM(stand_mlost))/SUM(stand_played)*100, (SUM(hit_mwon)-SUM(hit_mlost))/SUM(hit_played)*100, (SUM(doub_mwon)-SUM(doub_mlost))/SUM(doub_played)*100, (SUM(split_mwon)-SUM(split_mlost))/SUM(split_played)*100 FROM matchups WHERE player_id = {} GROUP BY value_name;".format(self.db_id)
+        self.value_matchups = dict()
+        # Returns the highest probability play for all matching bs_value matchups
+        # print("Loading BS Value Matchups")
+        sql = "SELECT bs_string, count(bs_string), (SUM(stand_mwon)-SUM(stand_mlost))/(SUM(stand_mwon)+SUM(stand_mlost))*1000, (SUM(hit_mwon)-SUM(hit_mlost))/(SUM(hit_mwon)+SUM(hit_mlost))*1000, (SUM(doub_mwon)-SUM(doub_mlost))/(SUM(doub_mwon)+SUM(doub_mlost))*1000, (SUM(split_mwon)-SUM(split_mlost))/(SUM(split_mwon)+SUM(split_mlost))*1000 FROM matchups WHERE player_id = {} GROUP BY bs_string;".format(self.db_id)
         v_matchups = db.lte_run_sql(sql, db=self.game.game_database)
-        action_lookup = {0: None, 2: "stand", 3: "hit", 4: "doub", 5: "split"}
+        #action_lookup = {0: None, 2: "stand", 3: "hit", 4: "doub", 5: "split"} #Corrisponds to column numbers in the return sql
         for m in v_matchups:
-            try:
-                top_return = m.index(max(value for value in m[2:] if value is not None))
-            except:
-                top_return = 0
-            self.value_matchups[m[0]] = action_lookup[top_return]
+            probabilities = {"stand" : m[2], "hit" : m[3], "doub" : m[4], "split" : m[5]}
+            self.value_matchups[m[0]] = probabilities
+        if self.game.verbose: print("{} Value Matchups Loaded".format(len(v_matchups)))
+
+    def get_missing_value_matchup(self,lu_bs_string):
+        mups = self.matchups
+        b = np.sum(np.array([(mups[d].action_record['stand']['mwon'],
+                    mups[d].action_record['stand']['mlost'],
+                    mups[d].action_record['hit']['mwon'],
+                    mups[d].action_record['hit']['mlost'],
+                    mups[d].action_record['doub']['mwon'],
+                    mups[d].action_record['doub']['mlost'],
+                    mups[d].action_record['split']['mwon'],
+                    mups[d].action_record['split']['mlost'],
+                    ) for d in self.matchups if mups[d].bs_string == lu_bs_string]),axis=0)
+        if np.sum(b)==0:
+            return None
+        def p(l,n):
+            if l[n]+l[n+1] == 0: return None
+            return ((l[n]-l[n+1])/(l[n]+l[n+1]))*1000
+        probabilities = {"stand": p(b,0), "hit": p(b,2), "doub": p(b,4), "split": p(b,6)}
+        self.value_matchups[lu_bs_string] = probabilities
+        return probabilities
 
     def save_player_matchups(self):
-        print("Saving Matchups")
+        # print("Saving Matchups")
         matchup_lists = []
         for m in self.matchups:
             matchup_lists.append((self.db_id,) + self.matchups[m]._matchup_array)
@@ -603,14 +659,26 @@ class Player(object):
                'top_action,' \
                'top_action_prob, ' \
                'value_name, ' \
-               'num_cards) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+               'bs_string, ' \
+               'num_cards) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
         db.lte_batch_update(sql2, matchup_lists, db=self.game.game_database)
-        print("{} Matchups Saved".format(len(matchup_lists)))
+        if self.hands_played > 1000 or self.game.verbose: print("{} Matchups Saved".format(len(matchup_lists)))
 
     @staticmethod
     def save_all_player_matchups(game):
         for p in game.players:
             p.save_player_matchups()
+
+    @staticmethod
+    def load_all_value_matchups(game):
+        for p in game.players:
+            p.load_value_matchups()
+
+    @staticmethod
+    def build_all_value_matchups_from_memory(game):
+        for p in game.players:
+            p.build_value_matchups_from_memory()
+
 
 
 class PlayerManual(Player):
@@ -762,13 +830,16 @@ class PlayerBasicStrategy(Player):
 
 class PlayerLearning(Player):
 
-    def __init__(self, name="", dealer=0, current_game=None, standings=None, play_style_delay=10, top_only=0, id=None, bs_eval=True):
+    def __init__(self, name="", dealer=0, current_game=None, standings=None, random_play_duration=10, weighted_play_duration=10, enable_top=0, id=None, bs_eval=False, value_assist=True):
         super().__init__(name=name, dealer=dealer, current_game=current_game, standings=standings, id=id)
-        self.play_style_delay = play_style_delay # The number of repeated hands before it starts to take into account weights
-        self.top = top_only #If true, the player will always pick the top choice based on hand wins
+        self.random_play_duration = random_play_duration # The number of repeated hands before it starts to take into account weights
+        self.weighted_play_duration = weighted_play_duration # The number of repeated hands before it goes to top only
+        self.top = enable_top #If true, the player will always pick the top choice based on hand wins. Will still consider the random_duration
         self.play_style = Player.WEIGHTED_PLAY
         self.bs_db = None
+        self.value_assist = value_assist #Should we use other hands results with BD classifications for under formed hands (while learning and top)
         if bs_eval: self.bs_db = get_strategy_map(current_game.strat_string)
+
 
     @staticmethod
     def build_player(current_game, dealer=0):
@@ -777,18 +848,29 @@ class PlayerLearning(Player):
         else:
             name = 'Dealer_{}'.format(datetime.now().strftime('%j%H%M%S'))
 
-        play_delay = None
-        while play_delay is None:
+        random_duration = None
+        while random_duration is None:
             try:
-                play_delay = int(input('How many hands before auto kicks in?: '))
+                random_duration = int(input('How many hands before learning kicks in?: '))
             except:
-                play_delay = None
-        top_only = input('Top only? t/f (default false): ')
-        if top_only.lower() in ('t','true','y','yes','1'):
-            top_only = 1
+                random_duration = None
+        enable_top = input('Enable Top Choice Play? t/f (default false): ')
+        if enable_top.lower() in ('t','true','y','yes','1'):
+            enable_top = 1
         else:
-            top_only = 0
-        return PlayerLearning(name=name, dealer=dealer, current_game=current_game, play_style_delay=play_delay, top_only=top_only)
+            enable_top = 0
+        weighted_duration = 0
+        if enable_top:
+            try:
+                weighted_duration = int(input('How many weighted hands before Top Only kicks in?: '))
+            except:
+                weighted_duration = 0
+        value_assist = input('Enable Value Based Assist t/f (default true): ')
+        if value_assist.lower() in ('t', 'true', 'y', 'yes', '1'):
+            value_assist = True
+        else:
+            value_assist = False
+        return PlayerLearning(name=name, dealer=dealer, current_game=current_game, random_play_duration=random_duration, weighted_play_duration=weighted_duration, enable_top=enable_top, value_assist=value_assist)
 
     def auto_play_hand(self, chand):
         '''
@@ -802,27 +884,24 @@ class PlayerLearning(Player):
                 break
             if not chand.bust and not chand.blackjack:
                 play_options = self.play_options(chand)
-                if self.top:
-                    choice = self.get_top_choice(chand, play_options.keys())
-                else:
-                    choice = self.get_matchup_choice(chand, play_options.keys())
+
+                choice = self.get_matchup_choice(chand, play_options.keys())
 
                 if not choice or choice not in play_options:
+                    if choice != 'doub':
+                        print('      NOT DOUB: {}'.format(choice))
+                    # All this below should not be accessable anymore
                     if self.game.verbose:
                         if choice not in play_options:
                             print('      Invalid Choice: {}'.format(choice))
                         else:
                             print('      No Choice: {}'.format(choice))
                         print('R$', end='')
+                    # This seems to mostly be for doubs when doub isn't valid, should just go to hit, but why isn't doub valid
                     play_choice = play_options[random.choice(list(play_options.keys()))]
                 else:
                     play_choice = play_options[choice]
-                # Compare to basic strategy choices
-                # if self.game.verbose :
-                #     bs_choice = PlayerBasicStrategy.get_bs_choice(self.bs_db, chand, self.game.current_dealer_hand, play_options, name_only=True)
-                #     if bs_choice != choice:
-                #         print("  NBS {}: PICKED {} | BS: {}".format(chand,choice,bs_choice))
-                #         # print("!", end='')
+
                 play_choice(chand)
                 if play_choice == self.split:
                     break
@@ -833,40 +912,47 @@ class PlayerLearning(Player):
                 self.stand(chand)
 
     def get_matchup_choice(self, hand, play_options):
-        """Todo: for some reason this doesn't always return the best weighted choice. there should be some randomness but not often"""
         matchup = self.get_matchup(hand)
-        if matchup.played == 1:
-            try:
-                mtch = self.value_matchups["{}+{}".format(matchup.player_hand_max_value, matchup.dealer_hand)]
-                if mtch in play_options:
-                    #print('V#',end='')
-                    return mtch
-                else:
-                    pass
-            except:
-                pass
-        return matchup.pick_action(play_options=play_options, delay=self.play_style_delay)
+        choice = None
+        if matchup.played <= self.random_play_duration:
+            if self.game.verbose: print("  Random Hand Played - Total {}".format(matchup.played))
+            choice = matchup.pick_random_action(play_options)
+        elif self.top and matchup.played > self.random_play_duration + self.weighted_play_duration:
+            if self.game.verbose: print("  Top Hand Played - Total {}".format(matchup.played))
+            choice = self.get_top_choice(matchup, play_options)
+        else:
+            if self.value_assist and matchup.played <= self.random_play_duration + self.weighted_play_duration:
+                if self.game.verbose: print("  Value Assist Hand Played - Total {}".format(matchup.played))
+                if matchup.bs_string not in self.value_matchups:
+                    self.get_missing_value_matchup(matchup.bs_string)
+                if matchup.bs_string in self.value_matchups:
+                    choice = self.get_value_choice(matchup, self.value_matchups[matchup.bs_string])
+            else:
+                if self.game.verbose: print("  Weighted Hand Played - Total {}".format(matchup.played))
+                choice = self.get_weighted_choice(matchup, play_options)
+                if not choice and self.value_assist:
+                    if matchup.bs_string not in self.value_matchups:
+                        self.get_missing_value_matchup(matchup.bs_string)
+                    if matchup.bs_string in self.value_matchups:
+                        choice = self.get_value_choice(matchup, self.value_matchups[matchup.bs_string])
+            if not choice:
+                choice = matchup.pick_random_action(play_options)
+        return choice
 
-    def get_top_choice(self, hand, play_options):
-        """
+    def get_weighted_choice(self, matchup, play_options):
+        return matchup.pick_action(play_options=play_options)
 
-        :param hand:
-        :param delay:
-        :return:
-        """
+    def get_value_choice(self, matchup, play_options):
+        return matchup.pick_value_action(play_options_dict=play_options)
 
-        matchup = self.get_matchup(hand)
-        if matchup.played < self.play_style_delay:
-            if self.game.verbose: print("  New hand - Hand Played {}".format(matchup.played))
-            return matchup.pick_random_action(play_options)
-        elif not matchup.clear_top_choice:
-            if self.game.verbose: print("  Clear Top? {} - {}".format(matchup.clear_top_choice, matchup.probabilities))
-            return matchup.pick_random_action(play_options)
-        elif matchup.top_choice not in play_options:
-            if self.game.verbose: print("  Not Valid? {} - {}".format(matchup.top_choice, play_options.keys()))
+    def get_top_choice(self, matchup, play_options):
+        choice = None
+        choice = matchup.get_clear_top_choice(play_options)
+        if not choice:
+            if self.game.verbose: print("  No Clear Top? {}".format(matchup.probabilities))
             return matchup.pick_random_action(play_options)
         else:
             if self.game.verbose: print("  Top Choice")
-            return matchup.top_choice
+            return choice
 
 

@@ -13,6 +13,6 @@ def make_project_path(string=""):
     else:
         return os.path.abspath(path+"blackjack"+os.sep)
 
-database = make_project_path("database/BlackJackDatabase.sqlite")
+# database = make_project_path("database/BlackJackDatabase.sqlite")
 
 

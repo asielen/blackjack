@@ -1,4 +1,9 @@
 import random
+from collections import OrderedDict
+
+UNKNPROB = 1001 #Value of an unplayed matchup prob
+CLEARTOPVAL = 130 # difference between top probs to be considerd clear top, Based on Median of the diff between the top two choices of about 1 billion hands
+MINPROB = -190 #This adjusts the probs to the abs(MINPROB) so -100 becomes 0, Based on stddeviation of differences
 
 class Deck(object):
     """
@@ -31,10 +36,10 @@ class Deck(object):
         """
         :return: Percent of the deck that is currently being used
         """
-        return round(((len(self.in_play_cards) + len(self.used_cards)) / (self.deck_size)) * 100, 2)
+        return ((len(self.in_play_cards) + len(self.used_cards)) / (self.deck_size)) * 100
 
     def __repr__(self):
-        return "Decks {} | Cards {} | Status: {}/{}/{} {}%".format(self.deck_size / 52, self.deck_size,
+        return "Decks {} | Cards {} | Status: {}/{}/{} {:+.2f}%".format(self.num_decks, self.deck_size,
                                                                    len(self.available_cards), len(self.in_play_cards),
                                                                    len(self.used_cards), self.penetraion)
 
@@ -356,6 +361,23 @@ class HandMatchup(object):
         return values
 
     @property
+    def bs_string(self):
+        #The Basic Strategy Representation
+        # EG: T,TX2 Two 10s and dealer shows 2
+        # 20SX2 Soft 20 (Ace and 9)
+        # 20X8 Hard 20 (T + T etc)
+        dealer = str(self.dealer_hand)[0]
+        if dealer in ("J", "Q", "K"): dealer = "T"
+        if self.can_split:
+            card = self.name[0]
+            if card in ("J", "Q", "K"): card = "T"
+            return "{},{}X{}".format(card,card,dealer)
+        elif self.soft:
+            return "{}SX{}".format(self.player_hand_max_value, dealer)
+        else:
+            return "{}X{}".format(self.player_hand_max_value, dealer)
+
+    @property
     def player_hand(self):
         return self.name.split("+")[0]
 
@@ -413,78 +435,74 @@ class HandMatchup(object):
         return False
 
     @property
+    def soft(self):
+        if "A" in self.player_hand:
+            return True
+        return False
+
+    def _get_prob(self, play=''):
+        if not play: return "UNKN"
+        if (self.action_record[play]["mwon"] + self.action_record[play]["mlost"]) != 0:
+            return ((self.action_record[play]["mwon"] - self.action_record[play]["mlost"]) /
+                    (self.action_record[play]["mwon"] + self.action_record[play]["mlost"])) * 1000
+        elif play == 'split' and not self.can_split:
+            return None
+        else: return "UNKN"
+
+    def _get_prob_report(self, play=''):
+        if not play: return None
+        return "{} {}/{} {:+.2f}% @ {:+.2f}%".format(play.upper(), self.action_record[play]["played"], self.played,
+                                                      self.action_record[play]["played"] / self.played * 100,
+                                                      self._get_prob(play))
+
+    @property
     def hit_prob(self):
-        if self.action_record["hit"]["played"] != 0:
-            return round(((self.action_record["hit"]["mwon"] - self.action_record["hit"]["mlost"]) /
-                          self.action_record["hit"]["played"]), 2) * 100
-            # return round(self.action_record["hit"]["won"]/self.action_record["hit"]["played"]*100,2)
-        else:
-            return "UNKN"
+        return self._get_prob("hit")
 
     @property
     def hit_report(self):
-        return "HIT {}/{} {}% @ {}%".format(self.action_record["hit"]["played"], self.played,
-                                            round(self.action_record["hit"]["played"] / self.played * 100, 2),
-                                            self.hit_prob)
+        return self._get_prob_report("hit")
 
     @property
     def split_prob(self):
-        if self.action_record["split"]["played"] != 0:
-            return round(((self.action_record["split"]["mwon"] - self.action_record["split"]["mlost"]) /
-                          self.action_record["split"]["played"]), 2) * 100
-        else:
-            if self.can_split:
-                return "UNKN"
-            return None
+        return self._get_prob("split")
 
     @property
     def split_report(self):
-        return "Split {}/{} {}% @ {}%".format(self.action_record["split"]["played"], self.played,
-                                              round(self.action_record["split"]["played"] / self.played * 100, 2),
-                                              self.split_prob)
+        return self._get_prob_report("split")
+
 
     @property
     def stand_prob(self):
-        if self.action_record["stand"]["played"] != 0:
-            return round(((self.action_record["stand"]["mwon"] - self.action_record["stand"]["mlost"]) /
-                          self.action_record["stand"]["played"]), 2) * 100
-        else:
-            return "UNKN"
+        return self._get_prob("stand")
+
 
     @property
     def stand_report(self):
-        return "STAND {}/{} {}% @ {}%".format(self.action_record["stand"]["played"], self.played,
-                                              round(self.action_record["stand"]["played"] / self.played * 100, 2),
-                                              self.stand_prob)
+        return self._get_prob_report("stand")
 
     @property
     def doub_prob(self):
-        if self.action_record["doub"]["played"] != 0:
-            return round(((self.action_record["doub"]["mwon"] - self.action_record["doub"]["mlost"]) /
-                          self.action_record["doub"]["played"]), 2) * 100
-        else:
-            return "UNKN"
+        return self._get_prob("doub")
 
     @property
     def doub_report(self):
-        return "DOUB {}/{} {}% @ {}%".format(self.action_record["doub"]["played"], self.played,
-                                             round(self.action_record["doub"]["played"] / self.played * 100, 2),
-                                             self.doub_prob)
+        return self._get_prob_report("doub")
 
     @property
     def bust_report(self):
-        return "BUST {}/{} {}%".format(self.action_record["bust"]["played"], self.played,
-                                       round(self.action_record["bust"]["played"] / self.played * 100, 2))
+        return "BUST {}/{} {:+.2f}%".format(self.action_record["bust"]["played"], self.played,
+                                       self.action_record["bust"]["played"] / self.played * 100)
 
     @property
     def push_report(self):
-        return "PUSH {}/{} {}%".format(self.action_record["push"]["played"], self.played,
-                                       round(self.action_record["push"]["played"] / self.played * 100, 2))
+        return "PUSH {}/{} {:+.2f}%".format(self.action_record["push"]["played"], self.played,
+                                       self.action_record["push"]["played"] / self.played * 100)
 
     @property
     def l2bj_report(self):
-        return "L2BJ {}/{} {}%".format(self.action_record["lost_to_blackjack"]["played"], self.played,
-                                       round(self.action_record["lost_to_blackjack"]["played"] / self.played * 100, 2))
+        return "L2BJ {}/{} {:+.2f}%".format(self.action_record["lost_to_blackjack"]["played"], self.played,
+                                       self.action_record["lost_to_blackjack"]["played"] / self.played)
 
     def filtered_probabilities(self, play_options):
         probs = self.probabilities
@@ -501,7 +519,7 @@ class HandMatchup(object):
             probs["split"] = self.split_prob
         for p in probs:
             if probs[p] == "UNKN":
-                probs[p] = -201
+                probs[p] = -UNKNPROB
         return probs
 
     def update_action(self, action, won, mwon):
@@ -516,11 +534,6 @@ class HandMatchup(object):
             self.action_record[action]["mlost"] += mwon
         else:
             pass
-            # print(action)
-            # print("PUSH--")
-            # self.action_record["push"]["played"] += 1
-
-            # print(self.__repr__())
 
     def pick_random_action(self, play_options):
         return random.choice(list(self.filtered_probabilities(play_options).keys()))
@@ -530,25 +543,37 @@ class HandMatchup(object):
         choice = None
         if self.played > MIN_RAND:
             choice = weighted_choice(self.filtered_probabilities(play_options))
-            # return choice
-            # if choice and self.action_record[choice]["played"] > MIN_RAND / 3:
-            #     return choice
         else:
             choice = self.pick_random_action(play_options)
         return choice
 
-    @property
-    def clear_top_choice(self):
-        if -201 in self.probabilities.values():
-            return False # Un-used options go to random
-        action_1, action_2 = sorted(self.probabilities, key=self.probabilities.get, reverse=True)[:2]
-        if abs(self.probabilities[action_1]-self.probabilities[action_2])<25:
-            return False
-        return True
+    def pick_value_action(self, play_options_dict):
+        choice = weighted_choice(play_options_dict)
+        # if not choice:
+        #     choice = self.pick_random_action(play_options_dict.keys())
+        return choice
 
-    def get_top_choice(self, play_options):
-        top_action = max(self.filtered_probabilities(play_options), key=self.filtered_probabilities(play_options).get)
-        return top_action#, self.filtered_probabilities(play_options)[top_action]
+
+
+    def get_clear_top_choice(self, play_options):
+        # Combination of filtered top choice and clear top choice
+        # Returns None if no clear top choice
+        filtered_probs = self.filtered_probabilities(play_options)
+        if -UNKNPROB in filtered_probs.values():
+            return None # Un-used options go to random until everything has been played at least once
+        try:
+            actions = sorted(filtered_probs, key=filtered_probs.get, reverse=True)
+            if len(actions) == 1:
+                return actions[0] #only one option
+            action_1, action_2 = actions[:2]
+            if abs(self.probabilities[action_1]-self.probabilities[action_2]) < CLEARTOPVAL:
+                # No clear top
+                return None
+            return action_1
+        except Exception as e:
+            # If there are not two actions
+            print(e)
+            return None
 
     @property
     def top_choice(self):
@@ -560,15 +585,9 @@ class HandMatchup(object):
         top_action = max(self.probabilities, key=self.probabilities.get)
         return top_action , self.probabilities[top_action]
 
-    # @property
-    # def top_2_choices(self):
-    #     top_choices = sorted(self.probabilities, key=self.probabilities.get, reverse=True)[:2]
-    #     #top_probabilities = [self.probabilities[top_choices[0]], self.probabilities[top_choices[1]]]
-    #     return top_choices#, top_probabilities
-
     def __repr__(self):
         if self.can_split:
-            return "{} = TOP: {} | TOTAL WON: {}% | {} | {} | {} | {} | {} | {} | {}".format(self.name, self.top_choice,
+            return "{} = TOP: {} | TOTAL WON: {:+.2f}% | {} | {} | {} | {} | {} | {} | {}".format(self.name, self.top_choice,
                                                                                              round(
                                                                                                  self.won / self.played * 100,
                                                                                                  2), self.stand_report,
@@ -579,7 +598,7 @@ class HandMatchup(object):
                                                                                              self.bust_report,
                                                                                              self.l2bj_report)
         else:
-            return "{} = TOP: {} | TOTAL WON: {}% | {} | {} | {} | {} | {} | {}".format(self.name, self.top_choice,
+            return "{} = TOP: {} | TOTAL WON: {:+.2f}% | {} | {} | {} | {} | {} | {}".format(self.name, self.top_choice,
                                                                                         round(
                                                                                             self.won / self.played * 100,
                                                                                             2), self.stand_report,
@@ -634,6 +653,7 @@ class HandMatchup(object):
                 self.top_choice[0],
                 self.top_choice[1],
                 "{}+{}".format(self.player_hand_max_value, self.dealer_hand),
+                self.bs_string,
                 self.num_cards)
 
 
@@ -655,13 +675,14 @@ class HandMatchup(object):
 
 
 def weighted_choice(choices):
-    adjust_min = abs(min(choices.values()))
-    if adjust_min==201: return None # This means one of the options hasn't been choosen yet so percentages may not be accurate
-    sub_choices = {(c, w+adjust_min) for c, w in choices.items()}# if w>=0}
+    # Choices in dict format
+    adjust_min = MINPROB#abs(min(choices.values()))
+    #if adjust_min==UNKNPROB: return None # This means one of the options hasn't been choosen yet so percentages may not be accurate
+    sub_choices = {(c, w-adjust_min) for c, w in choices.items() if w != None and w-adjust_min >= 0}
     total = sum(w for c, w in sub_choices)
     r = random.uniform(0, total)
     if total == 0:
-        return None
+        return None #This should only be when the highest prob is lower than MINPROB
     upto = 0
     for c, w in sub_choices:
         wa = w

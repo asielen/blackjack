@@ -30,8 +30,10 @@ def _initiate_database(data = db.database):
                     "doub_after_split INTEGER, "
                     "blackjack_payout ,"
                     "play_style INTEGER, "
-                    "play_style_delay INTEGER, "
+                    "random_play_duration INTEGER, "
+                    "weighted_play_duration INTEGER, "
                     "top INTEGER, "
+                    "value_assist INTEGER, "
                     "game_string INTEGER);")
 
         con.execute("CREATE TABLE IF NOT EXISTS matchups(id INTEGER PRIMARY KEY,"
@@ -73,6 +75,7 @@ def _initiate_database(data = db.database):
                     "top_action TEXT, "
                     "top_action_prob FLOAT, "
                     "value_name TEXT, "
+                    "bs_string TEXT, "
                     "num_cards INTEGER, "
                     "FOREIGN KEY (player_id) REFERENCES players(id));")
 

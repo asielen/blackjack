@@ -29,11 +29,7 @@ def get_strategy_map(strat_string):
 
 
 def save_strategy_map():
-    # First load anythin in the json
     bs_dict = {}
-    # with open('basic_strategy.json', 'r') as fp:
-    #     bs_dict = json.load(fp)
-    # bs_dict[strat_string] = strat_dict
     with open('basic_strategy.json', 'r') as fp:
         json.dump(bs_dict, fp)
 
@@ -86,8 +82,6 @@ def get_strategy_table(num_decks=1,soft17=True,double=True,double_after_split=Tr
 def build_basic_strategy(tables):
     bs_dict = {}
     dealer_value_list = ["2", "3", "4", "5", "6", "7", "8", "9", "T", "A"]
-    # current_matchup = ""
-    # current_play_list = []
     play_dict_lu = {"S": ["stand"], "H": ["hit"], "P": ["split"],"D":["doub"],"DH": ["doub", "hit"], "DS": ["doub", "split"],"RH":["hit", "surr"],"RS":["stand", "surr"]}
 
     def _parse_player_value(value_string):

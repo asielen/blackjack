@@ -307,51 +307,6 @@ def scrub_text2float(s):
 
 
 
-# Todo, I think i can trash this because all dates are now stored as timestamps 20141008
-def check_in_date_range(date, start, end):
-    """
-    @param date: the date to check
-    @param start: the date to start the range
-    @param end: the date to end the range
-    @rtype : bool
-    """
-    start = arrow.get(start)
-    end = arrow.get(end)
-    date = arrow.get(date)
-
-    if date >= start and date <= end:
-        return True
-    else:
-        return False
-
-
-# #
-# Time Methods - Todo: Also maybe put in SetInfo
-##
-def old_data(date, date_range=90):
-    """
-
-    @param date: date in get_timestamp format
-    @return: True if it is outside 90 days and needs to be updated, False otherwise
-    """
-    today = arrow.now()
-    past = today.replace(days=-date_range)
-    return not (check_in_date_rangeA(arrow.get(date), past, today))
-
-
-def check_in_date_rangeA(date, start, end):
-    """
-    all dates should already be in arrow format
-    @param date: the date to check
-    @param start: the date to start the range
-    @param end: the date to end the range
-    @rtype : bool
-    """
-    if date >= start and date <= end:
-        return True
-    else:
-        return False
-
 
 def check_if_the_same_day(dateA, dateB):
     """
@@ -369,45 +324,7 @@ def check_if_the_same_day(dateA, dateB):
     return False
 
 
-def get_timestamp(date=None, day=False):
-    """
 
-    @param date: In the format: YYYY-MM-DD
-    @return:
-    """
-    if date is None:
-        dte = arrow.now('US/Pacific')
-        if day is True:
-            return dte.floor('day').timestamp
-        else:
-            return dte.timestamp
-    return arrow.get(date, 'YYYY-MM-DD')
-
-
-def get_date(timestamp=None, default=None):
-    """
-
-    @param timestamp: If get_timestamp is None, return the current date, else return the get_timestamp date
-    @return:
-    """
-    if timestamp is None:
-        if default is None:
-            return None
-        else:
-            return arrow.now('US/Pacific').format('YYYY-MM-DD')
-    elif timestamp != "":
-        return arrow.get(timestamp).format('YYYY-MM-DD')
-    else:
-        return None
-
-
-def get_ts_day(timestamp):
-    """
-    Strip out the time part of a date
-    @param timestamp:
-    @return:
-    """
-    return arrow.get(timestamp).floor('day').timestamp
 
 
 def get_closest_list(num, num_list):
@@ -415,22 +332,7 @@ def get_closest_list(num, num_list):
     return min(num_list, key=lambda x: abs(x - num))
 
 
-def get_days_between(dateA, dateB):
-    """
-    Return the number of days between two dates
-    @param dateA:
-    @param dateB:
-    @return:
-    """
 
-    if dateA is None or dateB is None:
-        return False
-    if check_if_the_same_day(dateA, dateB):
-        return 0
-    dateAA = arrow.get(dateA)
-    dateBA = arrow.get(dateB)
-    date_dif = dateAA.date() - dateBA.date()
-    return date_dif.days
 
 
 
